@@ -10,6 +10,7 @@
 		AF2B00012F00000100000001 /* BatteryTrackerHelper in CopyFiles */ = {isa = PBXBuildFile; fileRef = AF2B00022F00000100000001 /* BatteryTrackerHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		AF2B000A2F00000100000001 /* com.github.homm.StillCore.BatteryTracker.plist in Copy LaunchAgent */ = {isa = PBXBuildFile; fileRef = AF2B00092F00000100000001 /* com.github.homm.StillCore.BatteryTracker.plist */; };
 		B0A000012E5A000100000001 /* MacmonSwift in Frameworks */ = {isa = PBXBuildFile; productRef = B0A000032E5A000100000001 /* MacmonSwift */; };
+		B0A000102E5A000100000001 /* MacmonSwift in Frameworks */ = {isa = PBXBuildFile; productRef = B0A000112E5A000100000001 /* MacmonSwift */; };
 		B0A000042E5A000100000001 /* DGCharts in Frameworks */ = {isa = PBXBuildFile; productRef = B0A000062E5A000100000001 /* DGCharts */; };
 		B0A000072E5A000100000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = B0A000092E5A000100000001 /* Sparkle */; };
 /* End PBXBuildFile section */
@@ -75,6 +76,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0A000102E5A000100000001 /* MacmonSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -161,6 +163,7 @@
 			);
 			name = BatteryTrackerHelper;
 			packageProductDependencies = (
+				B0A000112E5A000100000001 /* MacmonSwift */,
 			);
 			productName = BatteryTrackerHelper;
 			productReference = AF2B00022F00000100000001 /* BatteryTrackerHelper */;
@@ -473,6 +476,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.3.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.github.homm.StillCore.Debug.BatteryTrackerHelper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -492,6 +499,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.3.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.github.homm.StillCore.BatteryTrackerHelper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -560,6 +571,11 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		B0A000032E5A000100000001 /* MacmonSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A000022E5A000100000001 /* XCRemoteSwiftPackageReference "macmon-bindings" */;
+			productName = MacmonSwift;
+		};
+		B0A000112E5A000100000001 /* MacmonSwift */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B0A000022E5A000100000001 /* XCRemoteSwiftPackageReference "macmon-bindings" */;
 			productName = MacmonSwift;

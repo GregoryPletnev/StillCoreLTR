@@ -16,6 +16,8 @@ struct BatteryTrackerEngine {
     }
 
     func run() -> Never {
+        let historyRecorder = HelperHistoryRecorder()
+
         while true {
             autoreleasepool {
                 let cycleStartedAt = Date()
@@ -25,7 +27,11 @@ struct BatteryTrackerEngine {
                     let batteryStatus = try BatteryStatus.read()
                     state = update(state: state, batteryStatus: batteryStatus, now: cycleStartedAt)
                     try store.save(state)
+                    historyRecorder.record(batteryStatus: batteryStatus, now: cycleStartedAt)
                 } catch {
+                    // Metrics history does not depend on the battery, so keep
+                    // recording it even when the battery read fails.
+                    historyRecorder.record(batteryStatus: nil, now: cycleStartedAt)
                     do {
                         try store.save(makeErrorState(message: error.localizedDescription, now: cycleStartedAt))
                     } catch {

@@ -190,12 +190,9 @@ final class MenuPresentationController<Content: View>: NSObject, NSWindowDelegat
     }
 
     private func syncActivationPolicy() {
-        let desiredActivationPolicy: NSApplication.ActivationPolicy =
-            presentationMode == .floating && currentWindow.isVisible ? .regular : .accessory
-
-        if NSApp.activationPolicy() != desiredActivationPolicy {
-            NSApp.setActivationPolicy(desiredActivationPolicy)
-        }
+        AppActivationPolicy.setRegular(
+            presentationMode == .floating && currentWindow.isVisible,
+            for: "menu")
     }
 
     private func installHostingView(in containerView: NSView) {

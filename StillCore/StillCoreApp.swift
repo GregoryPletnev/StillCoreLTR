@@ -9,6 +9,20 @@ enum AppSettings {
     private static let metricsIntervalKey = "metricsIntervalMs"
     private static let frequencyUsageByCoresKey = "frequencyUsageByCores"
     private static let statusItemDisplayModeKey = "statusItemDisplayMode"
+    private static let historyRecordingEnabledKey = "historyRecordingEnabled"
+
+    /// History recording is on unless the user turned it off.
+    static var historyRecordingEnabled: Bool {
+        get {
+            guard UserDefaults.standard.object(forKey: historyRecordingEnabledKey) != nil else {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: historyRecordingEnabledKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: historyRecordingEnabledKey)
+        }
+    }
 
     static var metricsIntervalMs: Int {
         get {
@@ -168,20 +182,28 @@ final class AppDependencies: ObservableObject {
         }
     }
 
+    /// Reads as "8P+2E CPU · 16-core GPU".
+    ///
+    /// Performance cores come first, the way Apple lists them, and the GPU
+    /// count says what it counts: "16G cores" read as gigabytes.
     private func formatSocSummary(_ info: SocInfo) -> String {
-        var parts = info.cpuDomains.compactMap { domain -> String? in
-            var name = domain.name.uppercased()
-            let lower = domain.name.lowercased()
-            if lower == "ecpu" {
-                name = "E"
+        let cpuClusters = info.cpuDomains
+            .map { domain -> (rank: Int, text: String) in
+                switch domain.name.lowercased() {
+                case "pcpu": return (0, "\(domain.units)P")
+                case "ecpu": return (1, "\(domain.units)E")
+                default: return (2, "\(domain.units)\(domain.name.uppercased())")
+                }
             }
-            if lower == "pcpu" {
-                name = "P"
-            }
-            return "\(domain.units)\(name)"
+            .sorted { $0.rank < $1.rank }
+            .map(\.text)
+
+        var parts: [String] = []
+        if !cpuClusters.isEmpty {
+            parts.append(cpuClusters.joined(separator: "+") + " CPU")
         }
-        parts.append("\(info.gpuCores)G cores")
-        return parts.joined(separator: " ")
+        parts.append("\(info.gpuCores)-core GPU")
+        return parts.joined(separator: " · ")
     }
 
     @Published var metricsIntervalMs: Int = AppSettings.metricsIntervalMs {
@@ -228,7 +250,7 @@ final class AppDependencies: ObservableObject {
     private static let largeIntervalThresholdMs = 3_000
 }
 
-private enum MetricsChartPalette {
+enum MetricsChartPalette {
     static let board = color(light: (0.06, 0.736, 0.14), dark: (0.18, 0.92, 0.28))
     static let package = color(light: (0.058, 0.406, 0.892), dark: (0.13, 0.48, 0.97))
     static let cpu = color(light: (0.246, 0.663, 0.902), dark: (0.32, 0.74, 0.98))
@@ -545,6 +567,12 @@ struct ContentView: View {
                     .padding(.trailing, -1)
                     .padding(.vertical, -3)
                 Button {
+                    ReportWindowController.shared.show()
+                } label: {
+                    Image(systemName: "doc.text.magnifyingglass")
+                }
+                    .help("Consumption reports")
+                Button {
                     presentationState.setPresentationMode(
                         presentationState.mode == .attached ? .floating : .attached)
                 } label: {
@@ -766,6 +794,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             userDriverDelegate: nil
         )
 
+        MetricsHistoryRecorder.shared.start()
+
+        let reportItem = NSMenuItem(
+            title: "Reports...",
+            action: #selector(showReportWindow),
+            keyEquivalent: ""
+        )
+        reportItem.target = self
+        statusItemMenu.addItem(reportItem)
+        statusItemMenu.addItem(.separator())
+
         let aboutItem = NSMenuItem(title: "About...", action: #selector(showAboutPanel), keyEquivalent: "")
         aboutItem.target = self
         statusItemMenu.addItem(aboutItem)
@@ -810,6 +849,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showAboutPanel() {
         NSApp.activate()
         AboutPanel.show()
+    }
+
+    @objc private func showReportWindow() {
+        ReportWindowController.shared.show()
     }
 
     @objc private func checkForUpdates(_ sender: Any?) {
@@ -869,6 +912,12 @@ struct MainApp: App {
                 }
             }
             CommandGroup(replacing: .appSettings) {}
+            CommandGroup(after: .newItem) {
+                Button("Reports...") {
+                    ReportWindowController.shared.show()
+                }
+                    .keyboardShortcut("r", modifiers: .command)
+            }
             CommandGroup(after: .toolbar) {
                 Divider()
                 Button("Decrease Update Interval") {
