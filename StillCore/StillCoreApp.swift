@@ -2,7 +2,6 @@ import AppKit
 import Combine
 import SwiftUI
 import MacmonSwift
-import Sparkle
 
 enum AppSettings {
     static let defaultMetricsIntervalMs = 2000
@@ -56,8 +55,8 @@ enum AppSettings {
 enum AppPresentation {
     static let windowMinSize = CGSize(width: 420, height: 560)
     static let statusItemSystemImageName = "chart.bar.xaxis"
-    static let statusItemToolTip = "StillCore"
-    static let floatingWindowTitle = "StillCore"
+    static let statusItemToolTip = "StillCore LTR"
+    static let floatingWindowTitle = "StillCore LTR"
     static let chartHistoryCapacity = 200
 }
 
@@ -771,7 +770,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var presentationController: MenuPresentationController<ContentView>?
     private let statusItemMenu = NSMenu()
     private var statusItemController: StatusItemController?
-    private var updaterController: SPUStandardUpdaterController?
     private let restartHelperArgument = "--helper-restart"
     private let uninstallHelperArgument = "--helper-uninstall"
 
@@ -788,12 +786,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
-            updaterDelegate: nil,
-            userDriverDelegate: nil
-        )
-
         MetricsHistoryRecorder.shared.start()
 
         let reportItem = NSMenuItem(
@@ -808,14 +800,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let aboutItem = NSMenuItem(title: "About...", action: #selector(showAboutPanel), keyEquivalent: "")
         aboutItem.target = self
         statusItemMenu.addItem(aboutItem)
-
-        let updateItem = NSMenuItem(
-            title: "Check for Updates...",
-            action: #selector(checkForUpdates(_:)),
-            keyEquivalent: ""
-        )
-        updateItem.target = self
-        statusItemMenu.addItem(updateItem)
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApplication), keyEquivalent: "")
         quitItem.target = self
@@ -855,10 +839,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ReportWindowController.shared.show()
     }
 
-    @objc private func checkForUpdates(_ sender: Any?) {
-        updaterController?.checkForUpdates(sender)
-    }
-
     @objc private func quitApplication() {
         NSApp.terminate(nil)
     }
@@ -878,8 +858,9 @@ private enum AboutPanel {
 
         let credits = NSMutableAttributedString(try! AttributedString(
             markdown: """
-MIT licensed
-[Source code](https://github.com/homm/StillCore)
+StillCore LTR, MIT licensed
+[Source code](https://github.com/GregoryPletnev/StillCoreLTR)
+Forked from [StillCore](https://github.com/homm/StillCore)
 
 Metrics core by [macmon](https://github.com/vladkens/macmon)
 
@@ -907,7 +888,7 @@ struct MainApp: App {
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About StillCore") {
+                Button("About StillCore LTR") {
                     AboutPanel.show()
                 }
             }

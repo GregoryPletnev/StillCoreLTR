@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.github.homm.StillCore.BatteryTracker</string>
+	<string>com.ftech.StillCoreLTR.BatteryTracker</string>
 	<key>BundleProgram</key>
 	<string>Contents/MacOS/BatteryTrackerHelper</string>
 	<key>KeepAlive</key>

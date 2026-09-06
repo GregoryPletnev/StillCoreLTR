@@ -6,9 +6,9 @@ enum BatteryTrackerConstants {
     static var launchAgentLabel: String {
         return "\(stateDirectoryName).BatteryTracker"
     }
-    static let launchAgentPlistName = "com.github.homm.StillCore.BatteryTracker.plist"
+    static let launchAgentPlistName = "com.ftech.StillCoreLTR.BatteryTracker.plist"
     static var stateDirectoryName: String {
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.github.homm.StillCore"
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.ftech.StillCoreLTR"
         if bundleIdentifier.hasSuffix(helperBundleIdentifierSuffix) {
             return String(bundleIdentifier.dropLast(helperBundleIdentifierSuffix.count))
         }

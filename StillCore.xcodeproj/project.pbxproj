@@ -8,11 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		AF2B00012F00000100000001 /* BatteryTrackerHelper in CopyFiles */ = {isa = PBXBuildFile; fileRef = AF2B00022F00000100000001 /* BatteryTrackerHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		AF2B000A2F00000100000001 /* com.github.homm.StillCore.BatteryTracker.plist in Copy LaunchAgent */ = {isa = PBXBuildFile; fileRef = AF2B00092F00000100000001 /* com.github.homm.StillCore.BatteryTracker.plist */; };
+		AF2B000A2F00000100000001 /* com.ftech.StillCoreLTR.BatteryTracker.plist in Copy LaunchAgent */ = {isa = PBXBuildFile; fileRef = AF2B00092F00000100000001 /* com.ftech.StillCoreLTR.BatteryTracker.plist */; };
 		B0A000012E5A000100000001 /* MacmonSwift in Frameworks */ = {isa = PBXBuildFile; productRef = B0A000032E5A000100000001 /* MacmonSwift */; };
 		B0A000102E5A000100000001 /* MacmonSwift in Frameworks */ = {isa = PBXBuildFile; productRef = B0A000112E5A000100000001 /* MacmonSwift */; };
 		B0A000042E5A000100000001 /* DGCharts in Frameworks */ = {isa = PBXBuildFile; productRef = B0A000062E5A000100000001 /* DGCharts */; };
-		B0A000072E5A000100000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = B0A000092E5A000100000001 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -32,7 +31,7 @@
 			dstPath = Contents/Library/LaunchAgents;
 			dstSubfolderSpec = 1;
 			files = (
-				AF2B000A2F00000100000001 /* com.github.homm.StillCore.BatteryTracker.plist in Copy LaunchAgent */,
+				AF2B000A2F00000100000001 /* com.ftech.StillCoreLTR.BatteryTracker.plist in Copy LaunchAgent */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -50,7 +49,7 @@
 /* Begin PBXFileReference section */
 		AF9513E52E59D8B900550A10 /* StillCore.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StillCore.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF2B00022F00000100000001 /* BatteryTrackerHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = BatteryTrackerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
-		AF2B00092F00000100000001 /* com.github.homm.StillCore.BatteryTracker.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = BatteryTrackerLaunchAgent/com.github.homm.StillCore.BatteryTracker.plist; sourceTree = "<group>"; };
+		AF2B00092F00000100000001 /* com.ftech.StillCoreLTR.BatteryTracker.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = BatteryTrackerLaunchAgent/com.ftech.StillCoreLTR.BatteryTracker.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -84,7 +83,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B0A000072E5A000100000001 /* Sparkle in Frameworks */,
 				B0A000042E5A000100000001 /* DGCharts in Frameworks */,
 				B0A000012E5A000100000001 /* MacmonSwift in Frameworks */,
 			);
@@ -99,7 +97,7 @@
 				AF9513E72E59D8B900550A10 /* StillCore */,
 				AF2B00042F00000100000001 /* BatteryTrackingShared */,
 				AF2B00032F00000100000001 /* BatteryTrackerHelper */,
-				AF2B00092F00000100000001 /* com.github.homm.StillCore.BatteryTracker.plist */,
+				AF2B00092F00000100000001 /* com.ftech.StillCoreLTR.BatteryTracker.plist */,
 				AF9513E62E59D8B900550A10 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -139,7 +137,6 @@
 			packageProductDependencies = (
 				B0A000062E5A000100000001 /* DGCharts */,
 				B0A000032E5A000100000001 /* MacmonSwift */,
-				B0A000092E5A000100000001 /* Sparkle */,
 			);
 			productName = StillCore;
 			productReference = AF9513E52E59D8B900550A10 /* StillCore.app */;
@@ -199,7 +196,6 @@
 			packageReferences = (
 				B0A000052E5A000100000001 /* XCRemoteSwiftPackageReference "Charts" */,
 				B0A000022E5A000100000001 /* XCRemoteSwiftPackageReference "macmon-bindings" */,
-				B0A000082E5A000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AF9513E62E59D8B900550A10 /* Products */;
@@ -240,7 +236,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nplist=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents/com.github.homm.StillCore.BatteryTracker.plist\"\nplutil -replace Label -string \"$BATTERY_TRACKER_LAUNCH_AGENT_LABEL\" \"$plist\"\n";
+			shellScript = "set -e\nplist=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents/com.ftech.StillCoreLTR.BatteryTracker.plist\"\nplutil -replace Label -string \"$BATTERY_TRACKER_LAUNCH_AGENT_LABEL\" \"$plist\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -390,7 +386,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				AUTOMATION_APPLE_EVENTS = NO;
-				BATTERY_TRACKER_LAUNCH_AGENT_LABEL = com.github.homm.StillCore.Debug.BatteryTracker;
+				BATTERY_TRACKER_LAUNCH_AGENT_LABEL = com.ftech.StillCoreLTR.Debug.BatteryTracker;
 				CODE_SIGN_ENTITLEMENTS = StillCore/StillCore.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 202606121557;
@@ -409,9 +405,9 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.github.homm.StillCore.Debug;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ftech.StillCoreLTR.Debug;
+				PRODUCT_NAME = StillCoreLTR;
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -431,7 +427,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				AUTOMATION_APPLE_EVENTS = NO;
-				BATTERY_TRACKER_LAUNCH_AGENT_LABEL = com.github.homm.StillCore.BatteryTracker;
+				BATTERY_TRACKER_LAUNCH_AGENT_LABEL = com.ftech.StillCoreLTR.BatteryTracker;
 				CODE_SIGN_ENTITLEMENTS = StillCore/StillCore.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 202606121557;
@@ -450,9 +446,9 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.github.homm.StillCore;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ftech.StillCoreLTR;
+				PRODUCT_NAME = StillCoreLTR;
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -475,12 +471,12 @@
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.3.0;
+				MARKETING_VERSION = 1.0.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.github.homm.StillCore.Debug.BatteryTrackerHelper;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ftech.StillCoreLTR.Debug.BatteryTrackerHelper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 6.0;
@@ -498,12 +494,12 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.3.0;
+				MARKETING_VERSION = 1.0.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.github.homm.StillCore.BatteryTrackerHelper;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ftech.StillCoreLTR.BatteryTrackerHelper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 6.0;
@@ -559,14 +555,6 @@
 				minimumVersion = 5.1.0;
 			};
 		};
-		B0A000082E5A000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = exactVersion;
-				version = 2.9.2;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -584,11 +572,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B0A000052E5A000100000001 /* XCRemoteSwiftPackageReference "Charts" */;
 			productName = DGCharts;
-		};
-		B0A000092E5A000100000001 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A000082E5A000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

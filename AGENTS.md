@@ -4,10 +4,10 @@
 
 Useful `make help` commands for development:
 
-- `make app` — build `StillCore.app`
+- `make app` — build `StillCoreLTR.app`
 - `LOCAL=1 make app` — build with local workspace and local `macmon` xcframework
 - `make run` — build and run `StillCore` in the current terminal
-- `make open-app` — build and open `StillCore.app`
+- `make open-app` — build and open `StillCoreLTR.app`
 - `make helper-restart` — build the app and restart the battery helper
 - `make helper-uninstall` — build the app and uninstall the battery helper
 - `make profile` — build `StillCore` and launch Time Profiler
@@ -16,8 +16,8 @@ Useful `make help` commands for development:
 
 FYI:
 
-- `make release` — build a Release `StillCore.dmg`, submit it for notarization, then staple and validate it
-- `make dmg` — build a local Release `StillCore.dmg` suitable for local running
+- `make release` — build a Release `StillCoreLTR.dmg`, submit it for notarization, then staple and validate it
+- `make dmg` — build a local Release `StillCoreLTR.dmg` suitable for local running
 
 ## Verification
 

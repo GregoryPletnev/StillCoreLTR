@@ -53,7 +53,7 @@ buckets are kept for 14 days and hour buckets for five years, which comes to a
 few megabytes per year. The database lives next to the battery tracker state:
 
 ```
-~/Library/Application Support/com.github.homm.StillCore/metrics-history.sqlite
+~/Library/Application Support/com.ftech.StillCoreLTR/metrics-history.sqlite
 ```
 
 Recording can be turned off, and the history deleted, at the bottom of the
@@ -73,6 +73,10 @@ https://github.com/GregoryPletnev/StillCoreLTR/releases
 
 StillCore LTR is a fork of [homm/StillCore](https://github.com/homm/StillCore).
 Releases of the original are published separately, on its own releases page.
+
+The two can be installed side by side: LTR ships as `StillCoreLTR.app` under its
+own bundle identifier, with its own helper and its own stored data. StillCore LTR
+has no automatic updates, so check this releases page for new versions.
 
 
 ## License
@@ -110,7 +114,7 @@ Create a local DMG from source:
 make dmg
 ```
 
-This creates the Release `StillCore.dmg`.
+This creates the Release `StillCoreLTR.dmg`.
 
 Remove build artifacts:
 

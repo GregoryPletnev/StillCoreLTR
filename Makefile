@@ -1,4 +1,7 @@
+# NAME is the Xcode project and scheme; PRODUCT is what the build produces.
+# They differ so StillCore LTR can sit beside the original StillCore.
 NAME := StillCore
+PRODUCT := StillCoreLTR
 LOCAL ?=
 WORKSPACE ?=
 CONFIGURATION ?= Debug
@@ -23,20 +26,20 @@ ifneq ($(WORKSPACE),)
     XCODE_CONTAINER := -workspace $(WORKSPACE).xcworkspace
 endif
 
-APP_PATH = $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)/$(NAME).app
-APP_EXEC_PATH = $(APP_PATH)/Contents/MacOS/$(NAME)
+APP_PATH = $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)/$(PRODUCT).app
+APP_EXEC_PATH = $(APP_PATH)/Contents/MacOS/$(PRODUCT)
 
 .PHONY: help
 help:
 	@printf '%s\n' \
-		'make app            Build $(NAME).app' \
+		'make app            Build $(PRODUCT).app' \
 		'LOCAL=1 make app    Build with local workspace and local macmon xcframework' \
 		'make run            Build and run $(NAME) in this terminal' \
-		'make open-app       Build and open $(NAME).app' \
-		'make release        Build Release, create $(NAME).dmg, submit for notarization' \
+		'make open-app       Build and open $(PRODUCT).app' \
+		'make release        Build Release, create $(DMG_PATH), submit for notarization' \
 		'  DEVELOPMENT_TEAM=... Team id for Developer ID signing' \
 		'  NOTARY_PROFILE=... Keychain profile for notarytool (default: $(NOTARY_PROFILE))' \
-		'make dmg            Build Release, create $(NAME).dmg suitable for local running (ad-hoc)' \
+		'make dmg            Build Release, create $(DMG_PATH) suitable for local running (ad-hoc)' \
 		'make helper-restart Build app and restart battery helper' \
 		'make helper-uninstall Build app and uninstall battery helper' \
 		'make profile        Build $(NAME) and launch xctrace Time Profiler' \
@@ -137,14 +140,14 @@ _prepare-dmg-staging-dir:
 	ln -s /Applications "$(DMG_STAGING_DIR)/Applications"
 
 .PHONY: dmg
-DMG_PATH = $(NAME).dmg
+DMG_PATH = $(PRODUCT).dmg
 DMG_EXPORT_DIR = $(DERIVED_DATA)/export
 DMG_STAGING_DIR = $(DERIVED_DATA)/dmg
 dmg: EXPORT_DIR=$(DMG_EXPORT_DIR)
 dmg: _prepare-dmg-staging-dir export-app
-	cp -R "$(DMG_EXPORT_DIR)/$(NAME).app" "$(DMG_STAGING_DIR)/"
+	cp -R "$(DMG_EXPORT_DIR)/$(PRODUCT).app" "$(DMG_STAGING_DIR)/"
 	rm -f "$(DMG_PATH)"
-	hdiutil create -volname "$(NAME)" \
+	hdiutil create -volname "$(PRODUCT)" \
 		-srcfolder "$(DMG_STAGING_DIR)" \
 		-ov -format UDZO \
 		"$(DMG_PATH)"
