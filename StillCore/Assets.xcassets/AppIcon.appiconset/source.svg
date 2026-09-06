@@ -52,6 +52,10 @@
       <stop offset="0.62" stop-color="#DCE5F1"/>
       <stop offset="1" stop-color="#BFCADA"/>
     </radialGradient>
+    <linearGradient id="ltrGrad" x1="176" y1="770" x2="460" y2="874" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2FD3FF"/>
+      <stop offset="1" stop-color="#1EE3E8"/>
+    </linearGradient>
     <filter id="softGlow" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
       <feGaussianBlur stdDeviation="6" result="blur"/>
       <feMerge>
@@ -129,6 +133,16 @@
   </g>
 
   <!-- rim -->
+  <!-- LTR wordmark: this is the Long Term Report build -->
+  <g clip-path="url(#tileClip)">
+    <g filter="url(#softGlow)" stroke="url(#ltrGrad)" stroke-width="22"
+       stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M187 770 V870 H243"/>
+      <path d="M271 770 H361 M316 770 V870"/>
+      <path d="M389 770 V870 M389 770 H424 A32 32 0 0 1 424 834 H389 M414 834 L446 870"/>
+    </g>
+  </g>
+
   <rect x="128.5" y="128.5" width="996" height="996" rx="209.5" stroke="#FFFFFF" stroke-width="4" opacity="0.22"/>
   <rect x="131" y="131" width="991" height="991" rx="207" stroke="url(#rimShine)" stroke-width="8" opacity="0.95"/>
 </svg>

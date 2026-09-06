@@ -1,4 +1,9 @@
-# StillCore
+# StillCore LTR
+
+**LTR stands for Long Term Report.** This is the long term reporting build of
+StillCore: it keeps everything the original does and adds recorded history, so
+you can look back at power use over a day, a month, a quarter or a year instead
+of only at the last few minutes. See [History and Reports](#history-and-reports).
 
 StillCore is built for continuous Apple Silicon monitoring with low overhead. It stays in the macOS menu bar, quietly tracks what the Mac is doing, and is ready when something suddenly feels off: the laptop gets warm, battery drain jumps, or a background task briefly spikes power usage.
 
@@ -11,10 +16,48 @@ Main features:
 - Adjustable update interval from 100 ms to 10 seconds.
 - Quick menu bar access with an optional always-open window.
 - Battery session tracking, such as 15% used over 2 hours since the last charge.
+- Recorded history with consumption reports by day, month, quarter and year, with tables, charts, printing and PDF or CSV export.
 
-<img src="docs/app.png" alt="StillCore app screenshot" width="487">
+<img src="docs/app.png" alt="StillCore LTR app screenshot" width="487">
 
 StillCore is for everyday monitoring rather than deep profiling. It is built on top of [macmon](https://github.com/vladkens/macmon), which provides the core Apple Silicon metrics.
+
+
+## History and Reports
+
+StillCore records what it measures so you can look back at it later.
+
+Open **Reports...** from the menu bar icon, or press `Cmd-R`. Pick a day, month,
+quarter or year, then step through periods with the arrows. Each report shows:
+
+- Energy in watt-hours, split into CPU, GPU, ANE, the rest of the chip, and
+  everything outside it.
+- Average and peak system power.
+- Average CPU and GPU utilisation and temperature.
+- Battery discharge and how long the Mac ran unplugged.
+- Coverage, that is how much of the period was actually recorded.
+
+Use **Print** for paper or a system PDF, **PDF** to export the same pages to a
+file, or **CSV** to get every figure for a spreadsheet.
+
+### How recording works
+
+Two processes write the history, and neither needs the other:
+
+- The app records at its current update interval while it runs.
+- The battery helper records once every 30 seconds while the app is closed, so
+  a report does not go blank when you quit StillCore.
+
+Measurements are stored in one minute buckets and rolled up into hours. Minute
+buckets are kept for 14 days and hour buckets for five years, which comes to a
+few megabytes per year. The database lives next to the battery tracker state:
+
+```
+~/Library/Application Support/com.github.homm.StillCore/metrics-history.sqlite
+```
+
+Recording can be turned off, and the history deleted, at the bottom of the
+report window.
 
 
 ## Requirements
@@ -26,7 +69,10 @@ StillCore is for everyday monitoring rather than deep profiling. It is built on 
 ## Download
 
 Prebuilt downloads are available on the GitHub releases page:
-https://github.com/homm/StillCore/releases
+https://github.com/GregoryPletnev/StillCoreLTR/releases
+
+StillCore LTR is a fork of [homm/StillCore](https://github.com/homm/StillCore).
+Releases of the original are published separately, on its own releases page.
 
 
 ## License
