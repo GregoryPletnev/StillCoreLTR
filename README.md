@@ -146,6 +146,9 @@ A transatlantic flight lasts about ten hours. By measuring how much power Civili
 
 ## Development
 
+Releases are published from tags by GitHub Actions; see [docs/RELEASING.md](docs/RELEASING.md).
+To merge a new upstream version, follow [Syncing with upstream](docs/FORK.md#syncing-with-upstream).
+
 ### Build From Source
 
 Building from source requires Xcode with Swift 6 support and network access for Swift Package dependencies.

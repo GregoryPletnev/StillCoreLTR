@@ -12,6 +12,11 @@ SCAR_REVISION := 5b77611275909a2a05a6b57511d843485f4311e7
 XCODEBUILD_FLAGS := \
 	-quiet -hideShellScriptEnvironment \
 	ENABLE_CODE_COVERAGE=NO
+# ADHOC=1 signs with an ad-hoc identity and no team, for machines without a
+# signing certificate (CI publishing an unnotarized build).
+ifneq ($(ADHOC),)
+XCODEBUILD_FLAGS += CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
+endif
 DEVELOPMENT_TEAM ?=
 ifneq ($(DEVELOPMENT_TEAM),)
     XCODEBUILD_FLAGS += DEVELOPMENT_TEAM=$(DEVELOPMENT_TEAM)
@@ -44,6 +49,7 @@ help:
 		'  DEVELOPMENT_TEAM=... Team id for Developer ID signing' \
 		'  NOTARY_PROFILE=... Keychain profile for notarytool (default: $(NOTARY_PROFILE))' \
 		'make dmg            Build Release, create $(DMG_PATH) suitable for local running (ad-hoc)' \
+		'  ADHOC=1           Sign ad-hoc without a team (no certificate needed)' \
 		'make profile        Build $(NAME) and launch xctrace Time Profiler' \
 		'make benchmarks     Run charts benchmarks' \
 		'make test           Build app and run automated checks without root' \
