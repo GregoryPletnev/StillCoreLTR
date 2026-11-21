@@ -1,6 +1,6 @@
 # How StillCore LTR differs from StillCore
 
-StillCore LTR is a fork of [homm/StillCore](https://github.com/homm/StillCore).
+StillCore LTR is a fork of StillCore (upstream repository `homm/StillCore`).
 LTR stands for Long Term Report. The fork keeps all features of the original and
 adds recorded history with consumption reports.
 
@@ -74,19 +74,22 @@ match upstream. The last merged upstream version is **StillCore 2.0.0**.
 
 | File | Change |
 |------|--------|
-| `StillCore/StillCoreApp.swift` | Starts history recording; adds the Reports menu item, toolbar button and `Cmd-R`; removes Sparkle; LTR window title and chip summary. |
+| `StillCore/StillCoreApp.swift` | Starts history recording; adds the Reports menu item, toolbar button and `Cmd-R`; removes Sparkle; LTR window title, chip summary and About text. |
 | `StillCore/MenuPresentationController.swift` | Activation policy goes through `AppActivationPolicy`, so the report window and the floating window do not hide each other's Dock icon. |
 | `StillCore/HelperService.swift` | Fingerprints the app executable by its real name (`StillCoreLTR`), not a hard-coded `StillCore`. |
 | `BatteryTrackerHelper/BatteryTrackerEngine.swift`, `main.swift` | The engine gets a history callback; `main.swift` connects it to `HelperHistoryRecorder`. This keeps the engine buildable without MacmonSwift for `make test`. |
 | `BatteryTrackingShared/BatterySession.swift` | Agent label and data directory come from the bundle id. |
 | `PowerMetricsShared/PowerMetricsProtocol.swift`, `PowerMetricsLaunchDaemon/*.plist` | LTR daemon label. |
-| `StillCore.xcodeproj/project.pbxproj` | Product name, bundle ids, version, no Sparkle package, "Configure LaunchAgent" build phase that sets the agent label per configuration. |
+| `StillCore.xcodeproj/project.pbxproj` | Product name, bundle ids, version, no Sparkle package, "Configure LaunchAgent" build phase that sets the agent label per configuration. The phase must stay in the `StillCore` target's `buildPhases` list; a merge can drop it silently. |
 | `StillCore-Info.plist` | `CFBundleDisplayName`, no `SU*` Sparkle keys. |
 | `Makefile` | `PRODUCT := StillCoreLTR`, `ADHOC=1` for unsigned CI builds. |
-| `Tests/PowerMetricsChecks.swift` | Expects the per-configuration agent label. |
-| `README.md`, `AGENTS.md`, `docs/index.html` | LTR names and links. |
+| `Tests/PowerMetricsChecks.swift` | Expects the per-configuration agent label and LTR identifiers. |
+| `README.md` | Own README for LTR. Keep it when you merge; take only new feature descriptions from upstream. |
+| `AGENTS.md` | LTR names. |
+| `LICENSE` | Adds the FTECH copyright line; the upstream line stays. |
 | `Licenses/` | No `Sparkle.txt`. |
 | `docs/appcast.xml`, `.github/workflows/appcast.yml` | Removed. |
+| `docs/index.html` | Removed: the upstream product page. On a merge, resolve modify/delete conflicts by keeping it deleted. |
 
 ### Known gaps
 
@@ -113,6 +116,11 @@ Expect conflicts in `project.pbxproj`, `StillCoreApp.swift`, `Makefile`,
    `git grep -n 'com.github.homm'`.
 2. Search for a reintroduced Sparkle: `git grep -n -i 'sparkle\|SUFeed\|appcast'`.
 3. Search for a hard-coded app name: `git grep -n 'MacOS/StillCore'`.
-4. Run `make test` and `make app`.
-5. Update the "last merged upstream version" at the top of this page and add a
+4. Check that the "Configure LaunchAgent" phase is still in the `StillCore`
+   target: `grep -c 'Configure LaunchAgent' StillCore.xcodeproj/project.pbxproj`
+   must print 3.
+5. Build the fork-only files. They use the `macmon` `Metrics` API directly
+   (`MetricsHistoryRecorder.swift`, `HelperHistoryRecorder.swift`), and upstream
+   can remove helpers that only LTR uses. Run `make test` and `make dmg ADHOC=1`.
+6. Update the "last merged upstream version" at the top of this page and add a
    `CHANGELOG.md` entry.

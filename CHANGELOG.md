@@ -30,6 +30,10 @@ Based on StillCore 2.0.0.
   with an installed original StillCore.
 - Fixed helper registration in `StillCoreLTR.app`: the helper check looked for
   an executable named `StillCore`.
+- History recording uses the new macmon 0.10 metrics in the app and in the
+  battery helper.
+- Debug and Release builds use separate battery tracker labels again.
+- New README and About text.
 
 ### Known issues
 

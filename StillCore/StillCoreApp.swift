@@ -958,7 +958,7 @@ private enum AboutPanel {
             markdown: """
 StillCore LTR, MIT licensed
 [Source code](https://github.com/GregoryPletnev/StillCoreLTR)
-Forked from [StillCore](https://github.com/homm/StillCore)
+Based on StillCore by Aleksandr Karpinskii
 
 Metrics core by [macmon](https://github.com/vladkens/macmon)
 
