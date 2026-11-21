@@ -6,9 +6,11 @@ matches the tag, so keep the heading format `## [x.y.z] - YYYY-MM-DD`.
 For differences from the original StillCore, see [docs/FORK.md](docs/FORK.md).
 
 
-## [Unreleased]
+## [1.1.1] - 2026-11-21
 
-- The LTR icon is back.
+Based on StillCore 2.0.0.
+
+- The LTR app icon is back.
 
 
 ## [1.1.0] - 2026-11-21
