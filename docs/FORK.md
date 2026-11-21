@@ -33,8 +33,7 @@ match upstream. The last merged upstream version is **StillCore 2.0.0**.
 ### Changed
 
 - **Name and icon.** The app is `StillCoreLTR.app`, shown as "StillCore LTR".
-  Until the next icon rebuild, the icon is the same as upstream's (see
-  [Known gaps](#known-gaps)).
+  The icon is the LTR icon with the "LTR" mark, not upstream's icon.
 - **Chip summary in the header.** It reads `8P+2E CPU · 16-core GPU` instead of
   upstream's `4E 8P 16G`.
 - **Side-by-side install.** LTR and the original can be installed at the same
@@ -90,13 +89,21 @@ match upstream. The last merged upstream version is **StillCore 2.0.0**.
 | `Licenses/` | No `Sparkle.txt`. |
 | `docs/appcast.xml`, `.github/workflows/appcast.yml` | Removed. |
 | `docs/index.html` | Removed: the upstream product page. On a merge, resolve modify/delete conflicts by keeping it deleted. |
+| `StillCore/Assets.xcassets/AppIcon.appiconset` | LTR icon (`image.png`, 512×512, source in `source.svg`). Upstream removed it in 2.0. |
+| `scripts/build-assets.sh` | Compiles only `Assets.xcassets`. Upstream's `StillCore/AppIcon.icon` stays in the repository but is not used. |
+| `assets/Assets.car`, `assets/AppIcon.icns` | Compiled from the LTR icon. If upstream changes them, keep ours and run `make assets` again. |
 
-### Known gaps
+### App icon
 
-- **LTR mark on the icon.** Upstream 2.0 moved the icon to Icon Composer
-  (`StillCore/AppIcon.icon`) and ships a precompiled `assets/Assets.car`. To put
-  the LTR mark back, edit `StillCore/AppIcon.icon/Assets/icon.svg` and run
-  `make assets` on a Mac with Xcode 26.
+The icon comes from `StillCore/Assets.xcassets/AppIcon.appiconset`. The app does
+not compile asset catalogs at build time; it copies the precompiled
+`assets/Assets.car` and `assets/AppIcon.icns`. After you change the icon or any
+image in `Assets.xcassets`, run `make assets` and commit both files.
+
+`make assets` installs the `scar` tool, which needs Rust 1.87 or newer. `scar`
+only makes `Assets.car` smaller. Without it, you can run the `actool` command
+from `scripts/build-assets.sh` and copy `Assets.car` and `AppIcon.icns` from its
+output directory to `assets/`.
 
 
 ## Syncing with upstream
@@ -110,7 +117,8 @@ git merge upstream/main
 ```
 
 Expect conflicts in `project.pbxproj`, `StillCoreApp.swift`, `Makefile`,
-`README.md`, `Package.resolved` and `docs/index.html`. After the merge:
+`README.md`, `Package.resolved`, `docs/index.html`, `assets/` and
+`scripts/build-assets.sh`. After the merge:
 
 1. Search for new upstream identifiers and rename them to `com.ftech.StillCoreLTR`:
    `git grep -n 'com.github.homm'`.

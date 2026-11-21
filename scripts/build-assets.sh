@@ -6,7 +6,7 @@ work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 mkdir "$work_dir/compiled"
 
-xcrun actool StillCore/Assets.xcassets StillCore/AppIcon.icon \
+xcrun actool StillCore/Assets.xcassets \
     --compile "$work_dir/compiled" \
     --output-format human-readable-text \
     --platform macosx --minimum-deployment-target 14.0 \
