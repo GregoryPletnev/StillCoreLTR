@@ -174,6 +174,7 @@
 				AF9513E32E59D8B900550A10 /* Resources */,
 				AFFC83242E59E0410095EE6D /* CopyFiles */,
 				AF2B000B2F00000100000001 /* Copy LaunchAgent */,
+				AF2B00112F00000100000001 /* Configure LaunchAgent */,
 				AF3C000B2F00000100000001 /* Copy LaunchDaemon */,
 			);
 			buildRules = (

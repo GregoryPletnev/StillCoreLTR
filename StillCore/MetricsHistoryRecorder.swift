@@ -113,40 +113,28 @@ final class MetricsHistoryRecorder: ObservableObject {
     // MARK: - Conversion
 
     static func historySample(from metrics: Metrics, date: Date) -> MetricsHistorySample {
-        let cpu = weightedAverage(
-            metrics.cpu_usage.map {
-                (weight: Double($0.units), usage: Double($0.usage), frequency: Double($0.frequencyMHz))
-            })
-        let gpu = weightedAverage(
-            metrics.gpu_usage.map {
-                (weight: Double($0.units), usage: Double($0.usage), frequency: Double($0.frequencyMHz))
-            })
-
-        return MetricsHistorySample(
+        MetricsHistorySample(
             date: date,
-            powerSys: Double(metrics.power.board),
-            powerChip: Double(metrics.power.package),
-            powerCpu: Double(metrics.power.cpu),
-            powerGpu: Double(metrics.power.gpu),
-            powerAne: Double(metrics.power.ane),
-            cpuUsage: cpu.usage,
-            gpuUsage: gpu.usage,
-            cpuFrequencyMHz: cpu.frequency,
-            gpuFrequencyMHz: gpu.frequency,
-            temperatureCpu: Double(metrics.temperature.cpuAverage),
-            temperatureGpu: Double(metrics.temperature.gpuAverage)
+            powerSys: Double(metrics.sysPower),
+            powerChip: Double(metrics.chipPower),
+            powerCpu: Double(metrics.cpuPower),
+            powerGpu: Double(metrics.gpuPower),
+            powerAne: Double(metrics.anePower),
+            cpuUsage: Double(metrics.cpuActiveRatio),
+            gpuUsage: Double(metrics.gpuActiveRatio),
+            cpuFrequencyMHz: cpuFrequency(metrics.cpuTiers),
+            gpuFrequencyMHz: Double(metrics.gpuFreqMHz),
+            temperatureCpu: Double(metrics.temp.cpuTempAvg),
+            temperatureGpu: Double(metrics.temp.gpuTempAvg)
         )
     }
 
-    /// Collapses per-cluster readings into one figure, weighted by core count so
-    /// a busy four-core cluster does not outweigh an idle eight-core one.
-    private static func weightedAverage(
-        _ clusters: [(weight: Double, usage: Double, frequency: Double)]
-    ) -> (usage: Double, frequency: Double) {
-        let totalWeight = clusters.reduce(0) { $0 + max(1, $1.weight) }
-        guard totalWeight > 0 else { return (0, 0) }
-        let usage = clusters.reduce(0) { $0 + $1.usage * max(1, $1.weight) } / totalWeight
-        let frequency = clusters.reduce(0) { $0 + $1.frequency * max(1, $1.weight) } / totalWeight
-        return (usage, frequency)
+    /// Collapses per-tier frequencies into one figure, weighted by core count so
+    /// a four-core tier does not outweigh an eight-core one.
+    private static func cpuFrequency(_ tiers: [CpuTierMetrics]) -> Double {
+        let totalWeight = tiers.reduce(0) { $0 + max(1, $1.cores.count) }
+        if totalWeight == 0 { return 0 }
+        let weighted = tiers.reduce(0.0) { $0 + Double($1.freqMHz) * Double(max(1, $1.cores.count)) }
+        return weighted / Double(totalWeight)
     }
 }

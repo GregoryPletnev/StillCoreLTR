@@ -1,5 +1,11 @@
 import Foundation
 
+/// Reports and CSV export use a fixed locale, so figures always have a dot as
+/// the decimal separator whatever the user's region is.
+enum FormatLocale {
+    static let posix = Locale(identifier: "en_US_POSIX")
+}
+
 /// One table row and chart bar of a report.
 struct ReportRow: Identifiable, Sendable {
     let id: Int

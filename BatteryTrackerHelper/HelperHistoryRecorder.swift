@@ -113,39 +113,28 @@ final class HelperHistoryRecorder {
 
     // MARK: - Conversion
 
+    /// Same conversion as the app's `MetricsHistoryRecorder`, so both sources
+    /// write comparable buckets.
     private static func historySample(from metrics: Metrics, date: Date) -> MetricsHistorySample {
-        let cpu = weightedAverage(
-            metrics.cpu_usage.map {
-                (Double($0.units), Double($0.usage), Double($0.frequencyMHz))
-            })
-        let gpu = weightedAverage(
-            metrics.gpu_usage.map {
-                (Double($0.units), Double($0.usage), Double($0.frequencyMHz))
-            })
-
-        return MetricsHistorySample(
+        MetricsHistorySample(
             date: date,
-            powerSys: Double(metrics.power.board),
-            powerChip: Double(metrics.power.package),
-            powerCpu: Double(metrics.power.cpu),
-            powerGpu: Double(metrics.power.gpu),
-            powerAne: Double(metrics.power.ane),
-            cpuUsage: cpu.usage,
-            gpuUsage: gpu.usage,
-            cpuFrequencyMHz: cpu.frequency,
-            gpuFrequencyMHz: gpu.frequency,
-            temperatureCpu: Double(metrics.temperature.cpuAverage),
-            temperatureGpu: Double(metrics.temperature.gpuAverage))
+            powerSys: Double(metrics.sysPower),
+            powerChip: Double(metrics.chipPower),
+            powerCpu: Double(metrics.cpuPower),
+            powerGpu: Double(metrics.gpuPower),
+            powerAne: Double(metrics.anePower),
+            cpuUsage: Double(metrics.cpuActiveRatio),
+            gpuUsage: Double(metrics.gpuActiveRatio),
+            cpuFrequencyMHz: cpuFrequency(metrics.cpuTiers),
+            gpuFrequencyMHz: Double(metrics.gpuFreqMHz),
+            temperatureCpu: Double(metrics.temp.cpuTempAvg),
+            temperatureGpu: Double(metrics.temp.gpuTempAvg))
     }
 
-    private static func weightedAverage(
-        _ clusters: [(weight: Double, usage: Double, frequency: Double)]
-    ) -> (usage: Double, frequency: Double) {
-        let totalWeight = clusters.reduce(0) { $0 + max(1, $1.weight) }
-        guard totalWeight > 0 else { return (0, 0) }
-        return (
-            clusters.reduce(0) { $0 + $1.usage * max(1, $1.weight) } / totalWeight,
-            clusters.reduce(0) { $0 + $1.frequency * max(1, $1.weight) } / totalWeight
-        )
+    private static func cpuFrequency(_ tiers: [CpuTierMetrics]) -> Double {
+        let totalWeight = tiers.reduce(0) { $0 + max(1, $1.cores.count) }
+        if totalWeight == 0 { return 0 }
+        let weighted = tiers.reduce(0.0) { $0 + Double($1.freqMHz) * Double(max(1, $1.cores.count)) }
+        return weighted / Double(totalWeight)
     }
 }

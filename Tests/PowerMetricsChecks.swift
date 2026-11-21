@@ -447,7 +447,7 @@ private final class CheckListener: NSObject, NSXPCListenerDelegate, PowerMetrics
     }
 
     func disconnect() {
-        let connection = lock.withLock { connection }
+        let connection = lock.withLock { self.connection }
         connection?.invalidate()
     }
 
