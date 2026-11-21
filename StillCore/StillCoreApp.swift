@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import ServiceManagement
 import MacmonSwift
 
 enum AppSettings {
@@ -60,10 +61,6 @@ enum AppPresentation {
     static let chartHistoryCapacity = 200
 }
 
-enum FormatLocale {
-    static let posix = Locale(identifier: "en_US_POSIX")
-}
-
 enum AppFonts {
     static func tabularSystemFont(
         ofSize fontSize: CGFloat,
@@ -98,6 +95,8 @@ enum AppFonts {
         ofSize: 10, weight: .bold)
     nonisolated(unsafe) static let chartLegend = tabularSystemFont(
         ofSize: 12, weight: .medium)
+    nonisolated(unsafe) static let processValue = tabularSystemFont(
+        ofSize: 12, weight: .regular)
 }
 
 // MARK: - DI
@@ -110,11 +109,25 @@ final class AppDependencies: ObservableObject {
     @Published var socSummary: String = ""
     @Published var metricsError: String = ""
     private(set) var socInfo: SocInfo?
-    private var metricsTask: Task<Void, Never>?
-    private let metricsSubject = PassthroughSubject<Metrics, Never>()
+    private var metricsWorker: MetricsWorker?
+    private var previousMetrics: Metrics?
+    private let metricsSubject = PassthroughSubject<(metrics: Metrics, processes: ProcessSnapshot?), Never>()
+    @Published private(set) var chartHistoryResetRevision = 0
+
+    func clearChartHistory() {
+        chartHistoryResetRevision += 1
+    }
 
     var metricsPublisher: AnyPublisher<Metrics, Never> {
-        metricsSubject.eraseToAnyPublisher()
+        metricsSubject.map(\.metrics).eraseToAnyPublisher()
+    }
+
+    var processPublisher: AnyPublisher<ProcessSnapshot, Never> {
+        metricsSubject.compactMap(\.processes).eraseToAnyPublisher()
+    }
+
+    func setProcessSampler(_ sampler: sending ProcessSampler?) {
+        metricsWorker?.setProcessSampler(sampler)
     }
 
     private init() {
@@ -123,48 +136,63 @@ final class AppDependencies: ObservableObject {
     }
 
     func startMetricsLoop() {
-        guard metricsTask == nil else { return }
+        if metricsWorker != nil { return }
         metricsError = ""
-
-        metricsTask = Task.detached {
-            let clock = ContinuousClock()
-            var lastUpdateStarted = clock.now
-
-            do {
-                let sampler = try Sampler()
-                defer { sampler.close() }
-
-                while !Task.isCancelled {
-                    while true {
-                        let intervalMs = await MainActor.run { AppDependencies.shared.metricsIntervalMs }
-                        let sampleInterval = Swift.Duration.milliseconds(intervalMs)
-                        let elapsed = lastUpdateStarted.duration(to: clock.now)
-                        guard elapsed < sampleInterval else { break }
-
-                        do {
-                            try await Task.sleep(for: min(sampleInterval - elapsed, .milliseconds(500)))
-                        } catch {
-                            break
-                        }
-                    }
-
-                    guard !Task.isCancelled else { break }
-                    lastUpdateStarted = clock.now
-
-                    let metrics = try sampler.metrics()
-                    await MainActor.run {
-                        AppDependencies.shared.metricsSubject.send(metrics)
-                        if !AppDependencies.shared.metricsError.isEmpty {
-                            AppDependencies.shared.metricsError = ""
-                        }
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    AppDependencies.shared.metricsError = String(describing: error)
-                    AppDependencies.shared.metricsTask = nil
-                }
+        metricsWorker = MetricsWorker(
+            interval: .milliseconds(metricsIntervalMs),
+            onSample: { [weak self] metrics, processes in
+                self?.publishMetrics(metrics, processes: processes)
+            },
+            onError: { [weak self] message in
+                self?.metricsError = message
+                self?.metricsWorker = nil
             }
+        )
+    }
+
+    private func publishMetrics(_ source: Metrics, processes: ProcessSnapshot?) {
+        var metrics = source
+        // Keep CHIP above the stacked components and SYS above CHIP when reported totals disagree.
+        metrics.chipPower = max(metrics.chipPower, metrics.cpuPower + metrics.anePower + metrics.gpuPower)
+        metrics.sysPower = max(metrics.sysPower, metrics.chipPower)
+        for index in metrics.cpuTiers.indices {
+            var tier = metrics.cpuTiers[index]
+            // Ignore frequencies reported by idle cores when choosing the active peak.
+            var frequency = tier.cores.filter { $0.activeRatio > 0 }.map(\.freqMHz).max() ?? 0
+            // Per-core frequency is averaged over active time. Weight it by active residency
+            // to recover each core's effective frequency over the whole sampling interval.
+            let effectiveFrequency = tier.cores.reduce(0 as Float) {
+                $0 + Float($1.freqMHz) * $1.activeRatio
+            }
+            var coreCount = tier.cores.count
+            if let cpuTiers = socInfo?.cpuTiers, cpuTiers.indices.contains(index) {
+                // Missing sampled cores still count toward the tier's total capacity.
+                coreCount = max(coreCount, Int(cpuTiers[index].cores))
+                // Keep the chart line at a supported frequency during idle intervals.
+                let minimumFrequency = cpuTiers[index].freqs.filter { $0 > 0 }.min() ?? 0
+                frequency = max(frequency, minimumFrequency)
+            }
+            // This ratio represents effective load at the displayed frequency. Multiplying
+            // the two for the chart fill recovers mean effective frequency across all cores.
+            tier.freqMHz = frequency
+            tier.activeRatio = frequency > 0 && coreCount > 0
+                ? effectiveFrequency / (Float(coreCount) * Float(frequency)) : 0
+            metrics.cpuTiers[index] = tier
+        }
+        // Reject implausibly low temperatures without hiding cooling at idle.
+        let minimumTemperature: Float = 20
+        if let previousMetrics {
+            if metrics.temp.cpuTempAvg < minimumTemperature {
+                metrics.temp.cpuTempAvg = previousMetrics.temp.cpuTempAvg
+            }
+            if metrics.temp.gpuTempAvg < minimumTemperature {
+                metrics.temp.gpuTempAvg = previousMetrics.temp.gpuTempAvg
+            }
+        }
+        previousMetrics = metrics
+        metricsSubject.send((metrics, processes))
+        if !metricsError.isEmpty {
+            metricsError = ""
         }
     }
 
@@ -186,12 +214,12 @@ final class AppDependencies: ObservableObject {
     /// Performance cores come first, the way Apple lists them, and the GPU
     /// count says what it counts: "16G cores" read as gigabytes.
     private func formatSocSummary(_ info: SocInfo) -> String {
-        let cpuClusters = info.cpuDomains
-            .map { domain -> (rank: Int, text: String) in
-                switch domain.name.lowercased() {
-                case "pcpu": return (0, "\(domain.units)P")
-                case "ecpu": return (1, "\(domain.units)E")
-                default: return (2, "\(domain.units)\(domain.name.uppercased())")
+        let cpuClusters = info.cpuTiers
+            .map { tier -> (rank: Int, text: String) in
+                switch tier.label.uppercased() {
+                case "P": return (0, "\(tier.cores)P")
+                case "E": return (1, "\(tier.cores)E")
+                default: return (2, "\(tier.cores)\(tier.label.uppercased())")
                 }
             }
             .sorted { $0.rank < $1.rank }
@@ -208,6 +236,7 @@ final class AppDependencies: ObservableObject {
     @Published var metricsIntervalMs: Int = AppSettings.metricsIntervalMs {
         didSet {
             AppSettings.metricsIntervalMs = metricsIntervalMs
+            metricsWorker?.setInterval(.milliseconds(metricsIntervalMs))
         }
     }
 
@@ -251,13 +280,14 @@ final class AppDependencies: ObservableObject {
 
 enum MetricsChartPalette {
     static let board = color(light: (0.06, 0.736, 0.14), dark: (0.18, 0.92, 0.28))
-    static let package = color(light: (0.058, 0.406, 0.892), dark: (0.13, 0.48, 0.97))
-    static let cpu = color(light: (0.246, 0.663, 0.902), dark: (0.32, 0.74, 0.98))
-    static let gpu = color(light: (0.92, 0.188, 0.0), dark: (1.0, 0.30, 0.10))
+    static let package = color(light: (0.54, 0.79, 0.94), dark: (0.08, 0.31, 0.68))
+    static let packageText = color(light: (0.246, 0.663, 0.902), dark: (0.13, 0.48, 0.97))
+    static let cpu = color(light: (0.058, 0.406, 0.892), dark: (0.32, 0.74, 0.98))
+    static let gpu = color(light: (0.88, 0.29, 0.59), dark: (0.96, 0.38, 0.66))
     static let ane = color(light: (0.94, 0.62, 0.0), dark: (1.0, 0.66, 0.08))
 
     static let cpuFrequencyPalette: [NSColor] = [
-        board, package, cpu,
+        board, cpu, package,
         color(light: (0.117, 0.534, 0.773), dark: (0.26, 0.68, 0.92)),
         color(light: (0.048, 0.366, 0.644), dark: (0.18, 0.52, 0.82)),
     ]
@@ -287,20 +317,20 @@ enum MetricsChartPalette {
 @MainActor
 private enum MetricsChartDefinitions {
     private enum Formatters {
-        static func watts(_ value: Double) -> String {
-            String(format: "%.2f", locale: FormatLocale.posix, value)
+        static func watts(_ value: Float) -> String {
+            String(format: "%.2f", value)
         }
 
-        static func frequencyGHz(_ value: Double) -> String {
-            String(format: "%.2f", locale: FormatLocale.posix, value)
+        static func frequencyGHz(_ value: Float) -> String {
+            String(format: "%.2f", value)
         }
 
-        static func usage(_ value: Double) -> String {
-            String(format: "%.1f%%", locale: FormatLocale.posix, value * 100.0)
+        static func usage(_ value: Float) -> String {
+            String(format: "%.1f%%", value * 100.0)
         }
 
-        static func temperature(_ value: Double) -> String {
-            String(format: "%.1f", locale: FormatLocale.posix, value)
+        static func temperature(_ value: Float) -> String {
+            String(format: "%.1f", value)
         }
     }
 
@@ -323,35 +353,40 @@ private enum MetricsChartDefinitions {
                     title: "SYS",
                     color: MetricsChartPalette.board,
                     kind: .line,
-                    chartValue: { Double($0.power.board) },
+                    lineWidth: 0.7,
+                    chartValue: { $0.sysPower },
                     detailsFormatter: Formatters.watts
                 ),
                 MetricsSeriesDescriptor(
                     title: "CHIP",
                     color: MetricsChartPalette.package,
-                    kind: .line,
-                    chartValue: { Double($0.power.package) },
+                    textColor: MetricsChartPalette.packageText,
+                    kind: .fill,
+                    chartValue: { $0.chipPower },
                     detailsFormatter: Formatters.watts
                 ),
                 MetricsSeriesDescriptor(
                     title: "CPU",
                     color: MetricsChartPalette.cpu,
-                    kind: .line,
-                    chartValue: { Double($0.power.cpu) },
+                    kind: .fill,
+                    chartValue: { $0.cpuPower },
+                    stacksWithVisibleSeries: true,
                     detailsFormatter: Formatters.watts
                 ),
                 MetricsSeriesDescriptor(
                     title: "ANE",
                     color: MetricsChartPalette.ane,
-                    kind: .line,
-                    chartValue: { Double($0.power.ane) },
+                    kind: .fill,
+                    chartValue: { $0.anePower },
+                    stacksWithVisibleSeries: true,
                     detailsFormatter: Formatters.watts
                 ),
                 MetricsSeriesDescriptor(
                     title: "GPU",
                     color: MetricsChartPalette.gpu,
-                    kind: .line,
-                    chartValue: { Double($0.power.gpu) },
+                    kind: .fill,
+                    chartValue: { $0.gpuPower },
+                    stacksWithVisibleSeries: true,
                     detailsFormatter: Formatters.watts
                 ),
             ]
@@ -369,16 +404,16 @@ private enum MetricsChartDefinitions {
                     title: "CPU",
                     color: MetricsChartPalette.cpu,
                     kind: .line,
-                    lineWidth: 2.0,
-                    chartValue: { Double($0.temperature.cpuAverage) },
+                    lineWidth: 1.5,
+                    chartValue: { $0.temp.cpuTempAvg },
                     detailsFormatter: Formatters.temperature
                 ),
                 MetricsSeriesDescriptor(
                     title: "GPU",
                     color: MetricsChartPalette.gpu,
                     kind: .line,
-                    lineWidth: 2.0,
-                    chartValue: { Double($0.temperature.gpuAverage) },
+                    lineWidth: 1.5,
+                    chartValue: { $0.temp.gpuTempAvg },
                     detailsFormatter: Formatters.temperature
                 ),
             ]
@@ -400,19 +435,18 @@ When usage is at 100%, the area reaches the line.
 """,
         schemaBuilder: { metrics in
             guard let metrics else { return AnyHashable("frequency.empty") }
-            return AnyHashable(
-                metrics.cpu_usage.map(\.name) + ["|"] + metrics.gpu_usage.map(\.name)
-            )
+            return AnyHashable(metrics.cpuTiers.map(\.label))
         },
         seriesBuilder: { metrics in
             guard let metrics else { return [] }
-            return cpuFrequencySeries(from: metrics) + gpuFrequencySeries(from: metrics)
+            return cpuFrequencySeries(from: metrics) + gpuFrequencySeries()
         }
     )
 
     private static func cpuFrequencySeries(from metrics: Metrics) -> [MetricsSeriesDescriptor] {
-        metrics.cpu_usage.enumerated().flatMap { index, cluster in
-            let title = metrics.cpu_usage.count == 1 ? "CPU" : cluster.name
+        metrics.cpuTiers.enumerated().flatMap { index, cluster in
+            let title = metrics.cpuTiers.count == 1 ? "CPU"
+                : cluster.label.count == 1 ? "\(cluster.label)CPU" : cluster.label
             let color = MetricsChartPalette.cpuFrequencyPalette[
                 index % MetricsChartPalette.cpuFrequencyPalette.count
             ]
@@ -424,26 +458,27 @@ When usage is at 100%, the area reaches the line.
                     title: title,
                     color: color,
                     kind: .line,
+                    lineWidth: 0.7,
                     chartValue: { metrics in
-                        Double(cpuChartFrequencyMHz(metrics, index: index)) / 1000
+                        Float(metrics.cpuTiers[index].freqMHz) / 1000
                     },
                     detailsFormatter: Formatters.frequencyGHz,
                     detailsGroup: group
                 ),
                 MetricsSeriesDescriptor(
                     title: title,
-                    color: color.withAlphaComponent(0.3),
+                    color: color.withAlphaComponent(0.6),
                     kind: .fill,
                     chartValue: { metrics in
-                        Double(metrics.cpu_usage[index].usage)
-                            * Double(cpuChartFrequencyMHz(metrics, index: index)) / 1000
+                        metrics.cpuTiers[index].activeRatio
+                            * Float(metrics.cpuTiers[index].freqMHz) / 1000
                     },
                     detailsValue: { metrics in
-                        Double(metrics.cpu_usage[index].usage)
+                        metrics.cpuTiers[index].activeRatio
                     },
                     detailsFormatter: { usage in
                         Formatters.usage(
-                            usage * (AppDependencies.shared.frequencyUsageByCores ? coreCount : 1)
+                            usage * Float(AppDependencies.shared.frequencyUsageByCores ? coreCount : 1)
                         )
                     },
                     detailsGroup: group
@@ -452,67 +487,46 @@ When usage is at 100%, the area reaches the line.
         }
     }
 
-    private static func gpuFrequencySeries(from metrics: Metrics) -> [MetricsSeriesDescriptor] {
-        metrics.gpu_usage.enumerated().flatMap { index, cluster in
-            let title = metrics.gpu_usage.count == 1 ? "GPU" : cluster.name
-            let color = MetricsChartPalette.gpuFrequencyPalette[
-                index % MetricsChartPalette.gpuFrequencyPalette.count
-            ]
-            let group = "gpu.\(index)"
-
-            return [
-                MetricsSeriesDescriptor(
-                    title: title,
-                    color: color,
-                    kind: .line,
-                    chartValue: { metrics in
-                        Double(gpuChartFrequencyMHz(metrics, index: index)) / 1000
-                    },
-                    detailsFormatter: Formatters.frequencyGHz,
-                    detailsGroup: group
-                ),
-                MetricsSeriesDescriptor(
-                    title: title,
-                    color: color.withAlphaComponent(0.3),
-                    kind: .fill,
-                    chartValue: { metrics in
-                        Double(metrics.gpu_usage[index].usage)
-                            * Double(gpuChartFrequencyMHz(metrics, index: index)) / 1000
-                    },
-                    detailsValue: { metrics in
-                        Double(metrics.gpu_usage[index].usage)
-                    },
-                    detailsFormatter: Formatters.usage,
-                    detailsGroup: group
-                ),
-            ]
-        }
+    private static func gpuFrequencySeries() -> [MetricsSeriesDescriptor] {
+        let color = MetricsChartPalette.gpuFrequencyPalette[0]
+        let minimumFrequency = AppDependencies.shared.socInfo?.gpuFreqs.first { $0 > 0 } ?? 0
+        return [
+            MetricsSeriesDescriptor(
+                title: "GPU",
+                color: color,
+                kind: .line,
+                chartValue: { metrics in
+                    Float(max(minimumFrequency, metrics.gpuFreqMHz)) / 1000
+                },
+                detailsFormatter: Formatters.frequencyGHz,
+                detailsGroup: "gpu.0"
+            ),
+            MetricsSeriesDescriptor(
+                title: "GPU",
+                color: color.withAlphaComponent(0.6),
+                kind: .fill,
+                chartValue: { metrics in
+                    metrics.gpuActiveRatio
+                        * Float(max(minimumFrequency, metrics.gpuFreqMHz)) / 1000
+                },
+                detailsValue: { metrics in
+                    metrics.gpuActiveRatio
+                },
+                detailsFormatter: Formatters.usage,
+                detailsGroup: "gpu.0"
+            ),
+        ]
     }
 
-    private static func cpuChartFrequencyMHz(_ metrics: Metrics, index: Int) -> UInt32 {
-        let frequency = metrics.cpu_usage[index].frequencyMHz
-        guard frequency == 0,
-            let domains = AppDependencies.shared.socInfo?.cpuDomains,
-            domains.indices.contains(index),
-            let minimumFrequency = domains[index].frequenciesMHz.first
-        else { return frequency }
-        return minimumFrequency
-    }
-
-    private static func cpuChartCoreCount(index: Int) -> Double {
-        guard let domains = AppDependencies.shared.socInfo?.cpuDomains,
+    private static func cpuChartCoreCount(index: Int) -> Float {
+        if let domains = AppDependencies.shared.socInfo?.cpuTiers,
             domains.indices.contains(index)
-        else { return 1 }
-        return Double(domains[index].units)
+        {
+            return Float(domains[index].cores)
+        }
+        return 1
     }
 
-    private static func gpuChartFrequencyMHz(_ metrics: Metrics, index: Int) -> UInt32 {
-        let frequency = metrics.gpu_usage[index].frequencyMHz
-        guard frequency == 0,
-            let minimumFrequency = AppDependencies.shared.socInfo?.gpuFrequenciesMHz.first
-        else { return frequency }
-        return minimumFrequency
-    }
 }
 
 // MARK: - SwiftUI content for the popover/window
@@ -520,18 +534,31 @@ struct ContentView: View {
     @ObservedObject private var dependencies = AppDependencies.shared
     @ObservedObject private var batteryTrackerService = BatteryTrackerService.shared
     @ObservedObject var presentationState: MenuPresentationState
-    @State private var highlightedChartSampleX: Double?
+    @State private var chartSelection = ChartSelection()
+    @State private var showsProcesses = false
     @State private var isBatteryTrackerPopoverPresented = false
     @State private var batteryEnergyModeMenuController = BatteryEnergyModeMenuController()
 
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                Text(dependencies.chipName ?? AppPresentation.floatingWindowTitle)
-                    .font(.headline)
-                Text(dependencies.socSummary)
-                    .foregroundStyle(.secondary)
-                Spacer()
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if let chipName = dependencies.chipName, chipName.hasPrefix("Apple ") {
+                        let logo = Text(Image(systemName: "apple.logo"))
+                            .baselineOffset(0.5)
+                        Text("\(logo)\u{2005}\(chipName.dropFirst("Apple ".count))")
+                            .font(.headline)
+                    } else {
+                        Text(dependencies.chipName ?? AppPresentation.floatingWindowTitle)
+                            .font(.headline)
+                    }
+                    if !dependencies.socSummary.isEmpty {
+                        Text(presentationState.mode == .attached ? "\(dependencies.socSummary) cores" : dependencies.socSummary)
+                            .font(presentationState.mode == .floating ? .subheadline : nil)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Menu {
                     Text("Update interval:")
                     ForEach(Self.intervalMenuOptions, id: \.milliseconds) { option in
@@ -549,6 +576,10 @@ struct ContentView: View {
                         dependencies.increaseMetricsInterval()
                     }
                         .keyboardShortcut("=", modifiers: [])
+                    Button("Clear Chart History") {
+                        dependencies.clearChartHistory()
+                    }
+                        .keyboardShortcut("k", modifiers: .command)
                 } label: {
                     HStack(spacing: 0) {
                         Image(systemName: "clock.arrow.circlepath")
@@ -585,6 +616,7 @@ struct ContentView: View {
                     Image(systemName: "power")
                 }
             }
+            .padding(.leading, presentationState.mode == .floating ? 80 : 0)
 
             if !dependencies.metricsError.isEmpty {
                 Text("Macmon error: \(dependencies.metricsError)")
@@ -596,107 +628,99 @@ struct ContentView: View {
                 let backgroundColor = Color(.textBackgroundColor)
                     .padding(EdgeInsets(top: -8, leading: -12, bottom: -4, trailing: -12))
                 let chartSectionInsets = EdgeInsets(top: 8, leading: 0, bottom: 4, trailing: 0)
-                GeometryReader { metrics in
-                    VStack(spacing: 0) {
-                        MetricsChartSection(
-                            definition: MetricsChartDefinitions.power,
-                            metricsPublisher: dependencies.metricsPublisher,
-                            capacity: AppPresentation.chartHistoryCapacity,
-                            showUpdates: presentationState.isWindowVisible,
-                            highlightedSampleX: $highlightedChartSampleX
-                        )
-                            .frame(height: metrics.size.height * 0.35)
-                            .background(backgroundColor)
-                            .padding(chartSectionInsets)
-
-                        MetricsChartSection(
-                            definition: MetricsChartDefinitions.frequency,
-                            metricsPublisher: dependencies.metricsPublisher,
-                            capacity: AppPresentation.chartHistoryCapacity,
-                            showUpdates: presentationState.isWindowVisible,
-                            highlightedSampleX: $highlightedChartSampleX,
-                            settingsInvalidationKey: AnyHashable(dependencies.frequencyUsageByCores),
-                            settingsView: AnyView(
-                                Toggle(
-                                    "CPU usage by cores",
-                                    isOn: $dependencies.frequencyUsageByCores
-                                )
-                                    .padding(12)
+                VStack(spacing: 0) {
+                    GeometryReader { metrics in
+                        let chartHeight = metrics.size.height - 3 * (chartSectionInsets.top + chartSectionInsets.bottom)
+                        VStack(spacing: 0) {
+                            MetricsChartSection(
+                                definition: MetricsChartDefinitions.power,
+                                metricsPublisher: dependencies.metricsPublisher,
+                                capacity: AppPresentation.chartHistoryCapacity,
+                                showUpdates: presentationState.isWindowVisible,
+                                historyResetRevision: dependencies.chartHistoryResetRevision,
+                                selection: chartSelection
                             )
-                        )
-                            .frame(height: metrics.size.height * 0.35)
-                            .background(backgroundColor)
-                            .padding(chartSectionInsets)
+                                .frame(height: max(0, chartHeight) * 0.35)
+                                .background(backgroundColor)
+                                .padding(chartSectionInsets)
 
-                        MetricsChartSection(
-                            definition: MetricsChartDefinitions.temperature,
-                            metricsPublisher: dependencies.metricsPublisher,
-                            capacity: AppPresentation.chartHistoryCapacity,
-                            showUpdates: presentationState.isWindowVisible,
-                            highlightedSampleX: $highlightedChartSampleX,
-                            yAxisLabelCount: 4,
-                            yStart: 30
-                        )
-                            .background(backgroundColor)
-                            .padding(chartSectionInsets)
+                            MetricsChartSection(
+                                definition: MetricsChartDefinitions.frequency,
+                                metricsPublisher: dependencies.metricsPublisher,
+                                capacity: AppPresentation.chartHistoryCapacity,
+                                showUpdates: presentationState.isWindowVisible,
+                                historyResetRevision: dependencies.chartHistoryResetRevision,
+                                selection: chartSelection,
+                                settingsInvalidationKey: AnyHashable(dependencies.frequencyUsageByCores),
+                                settingsView: AnyView(
+                                    Toggle(isOn: $dependencies.frequencyUsageByCores) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("CPU usage by cores")
+                                            Text(dependencies.frequencyUsageByCores
+                                                ? "Each fully used core counts as 100%"
+                                                : "A fully used group counts as 100%")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .frame(width: 260, alignment: .leading)
+                                    .padding(12)
+                                )
+                            )
+                                .frame(height: max(0, chartHeight) * 0.35)
+                                .background(backgroundColor)
+                                .padding(chartSectionInsets)
+
+                            MetricsChartSection(
+                                definition: MetricsChartDefinitions.temperature,
+                                metricsPublisher: dependencies.metricsPublisher,
+                                capacity: AppPresentation.chartHistoryCapacity,
+                                showUpdates: presentationState.isWindowVisible,
+                                historyResetRevision: dependencies.chartHistoryResetRevision,
+                                selection: chartSelection,
+                                yAxisLabelCount: 4,
+                                yStart: 30
+                            )
+                                .background(backgroundColor)
+                                .padding(chartSectionInsets)
+                        }
+                    }
+                    ProcessList(
+                        presentationState: presentationState,
+                        processPublisher: dependencies.processPublisher,
+                        isExpanded: showsProcesses
+                    )
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        presentationState.onMinimumContentHeightChange?(AppPresentation.windowMinSize.height + height)
                     }
                 }
             }
 
-            if BatteryTrackerService.isBatteryAvailable {
+            if BatteryTrackerService.isBatteryAvailable || dependencies.metricsError.isEmpty {
                 HStack(spacing: 8) {
-                    if let batteryState = batteryTrackerService.runtimeState {
-                        Button {
-                            batteryEnergyModeMenuController.showMenu()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(nsImage: BatteryIndicatorImage.make(
-                                    state: batteryState,
-                                    usesSecondaryMask: false
-                                ))
-                                    .padding(.vertical, -1)
-                                    .foregroundStyle(.secondary)
-                                Text("\(Int(batteryState.currentPercent.rounded()))%")
-                                    .foregroundStyle(.secondary)
-                                    .font(Font(AppFonts.batteryPercent))
-                            }
-                        }
-                            .buttonStyle(AccessoryLikeButtonStyle())
-                            .background {
-                                BatteryEnergyModeMenuAnchor(
-                                    controller: batteryEnergyModeMenuController,
-                                    batteryState: batteryState,
-                                    openBatterySettings: {
-                                        batteryTrackerService.openBatterySettings()
-                                    }
-                                )
-                            }
-                            .help("Energy mode")
-                            .padding(.leading, -7)
-                            .padding(.trailing, -5)
-                            .padding(.vertical, -4)
+                    if BatteryTrackerService.isBatteryAvailable {
+                        batteryControls
                     }
-
-                    Text(batteryTrackerService.statusText)
-                        .textSelection(.enabled)
-                        .foregroundStyle(.secondary)
-
-                    if batteryTrackerService.actionTitle != nil {
+                    Spacer(minLength: 0)
+                    if dependencies.metricsError.isEmpty {
                         Button {
-                            isBatteryTrackerPopoverPresented.toggle()
+                            showsProcesses.toggle()
                         } label: {
-                            Image(systemName: "exclamationmark.circle")
-                                .font(AppFonts.helpIcon)
-                                .foregroundStyle(.secondary)
+                            HStack(spacing: 0) {
+                                Text("Top processes")
+                                Image(systemName: showsProcesses ? "chevron.up" : "chevron.down")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .offset(y: 1)
+                                    .padding(.leading, 2)
+                            }
+                            .fixedSize()
                         }
-                        .buttonStyle(.plain)
-                        .help("Battery tracker")
-                        .popover(isPresented: $isBatteryTrackerPopoverPresented, arrowEdge: .bottom) {
-                            BatteryTrackerPopover(service: batteryTrackerService)
-                        }
+                        .buttonStyle(AccessoryLikeButtonStyle(isSelected: showsProcesses))
+                        .accessibilityLabel("Top processes")
+                        .accessibilityValue(showsProcesses ? "Expanded" : "Collapsed")
                     }
-                    Spacer()
                 }
+                .frame(height: BatteryIndicatorImage.size.height)
             }
         }
         .padding(12)
@@ -710,27 +734,95 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private var batteryControls: some View {
+        if let batteryState = batteryTrackerService.runtimeState {
+            Button {
+                batteryEnergyModeMenuController.showMenu()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(nsImage: BatteryIndicatorImage.make(
+                        state: batteryState,
+                        usesSecondaryMask: false
+                    ))
+                        .padding(.vertical, -1)
+                        .foregroundStyle(.secondary)
+                    Text("\(batteryState.displayedPercent)%")
+                        .foregroundStyle(.secondary)
+                        .font(Font(AppFonts.batteryPercent))
+                }
+            }
+                .buttonStyle(AccessoryLikeButtonStyle())
+                .background {
+                    BatteryEnergyModeMenuAnchor(
+                        controller: batteryEnergyModeMenuController,
+                        batteryState: batteryState,
+                        openBatterySettings: {
+                            batteryTrackerService.openBatterySettings()
+                        }
+                    )
+                }
+                .help("Energy mode")
+                .padding(.leading, -7)
+                .padding(.trailing, -5)
+                .padding(.vertical, -4)
+        }
+
+        BatteryStatusLabel(state: batteryTrackerService.runtimeState, trackerRunning: batteryTrackerService.status == .running)
+            .foregroundStyle(.secondary)
+
+        if batteryTrackerService.status != .running {
+            Button {
+                isBatteryTrackerPopoverPresented.toggle()
+            } label: {
+                Image(systemName: "exclamationmark.circle")
+                    .font(AppFonts.helpIcon)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Battery tracker")
+            .popover(isPresented: $isBatteryTrackerPopoverPresented, arrowEdge: .bottom) {
+                BatteryTrackerPopover(service: batteryTrackerService)
+            }
+        }
+    }
+
     private struct BatteryTrackerPopover: View {
         @ObservedObject var service: BatteryTrackerService
 
         var body: some View {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(service.runtimeLabel)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Track Battery Usage")
+                    .font(.headline)
 
-                if !service.lastErrorMessage.isEmpty {
-                    Text(service.lastErrorMessage)
+                Text("StillCore can run a lightweight background service to track battery drain during each unplugged session, even while the app is closed.")
+
+                if let errorMessage = service.errorMessage {
+                    Text(errorMessage)
                         .textSelection(.enabled)
                         .foregroundStyle(.secondary)
                 }
 
-                if let actionTitle = service.actionTitle {
-                    Button(actionTitle) {
-                        service.performPrimaryAction()
+                switch service.status {
+                case .stopped:
+                    Button("Start Service") { Task { await service.start() } }
+                case .requiresApproval:
+                    Text(
+                        "Approve StillCore in System Settings → General → Login Items & Extensions."
+                    ).foregroundStyle(.secondary)
+                    Button("Open System Settings") { SMAppService.openSystemSettingsLoginItems() }
+                case .starting:
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("Starting battery tracker…")
                     }
+                case .running:
+                    EmptyView()
                 }
             }
             .padding(12)
+            .frame(width: 340, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -770,19 +862,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var presentationController: MenuPresentationController<ContentView>?
     private let statusItemMenu = NSMenu()
     private var statusItemController: StatusItemController?
-    private let restartHelperArgument = "--helper-restart"
-    private let uninstallHelperArgument = "--helper-uninstall"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if CommandLine.arguments.contains(restartHelperArgument) {
-            BatteryTrackerService.shared.restartHelper()
-            NSApp.terminate(nil)
-            return
-        }
-
-        if CommandLine.arguments.contains(uninstallHelperArgument) {
-            BatteryTrackerService.shared.uninstallHelper()
-            NSApp.terminate(nil)
+        if CommandLine.arguments.contains("--helpers-uninstall") {
+            Task {
+                let services: [(String, SMAppService)] = [
+                    ("Battery tracker", .agent(plistName: BatteryTrackerConstants.launchAgentPlistName)),
+                    ("CPU power", .daemon(plistName: PowerMetricsConstants.plistName)),
+                ]
+                var failed = false
+                for (name, service) in services {
+                    if service.status == .notRegistered || service.status == .notFound { continue }
+                    do {
+                        try await service.unregister()
+                    } catch {
+                        fputs("Could not uninstall \(name) helper: \(error)\n", stderr)
+                        failed = true
+                    }
+                }
+                exit(failed ? EXIT_FAILURE : EXIT_SUCCESS)
+            }
             return
         }
 
@@ -797,6 +896,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemMenu.addItem(reportItem)
         statusItemMenu.addItem(.separator())
 
+        _ = BatteryTrackerService.shared
+
         let aboutItem = NSMenuItem(title: "About...", action: #selector(showAboutPanel), keyEquivalent: "")
         aboutItem.target = self
         statusItemMenu.addItem(aboutItem)
@@ -810,16 +911,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ContentView(presentationState: presentationState)
             },
             statusItemMenu: statusItemMenu,
-            configureWindow: { window, presentationMode in
+            configureWindow: { window in
                 window.title = AppPresentation.floatingWindowTitle
                 window.setContentSize(AppPresentation.windowMinSize)
-
-                switch presentationMode {
-                case .attached:
-                    window.contentMinSize = AppPresentation.windowMinSize
-                case .floating:
-                    window.minSize = AppPresentation.windowMinSize
-                }
+                window.contentMinSize = AppPresentation.windowMinSize
             }
         )
 
@@ -828,6 +923,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem: presentationController.statusItem,
             menu: statusItemMenu
         )
+        if CommandLine.arguments.contains("--floating") {
+            presentationController.showFloatingWindow()
+        }
     }
 
     @objc private func showAboutPanel() {
@@ -901,6 +999,10 @@ struct MainApp: App {
             }
             CommandGroup(after: .toolbar) {
                 Divider()
+                Button("Clear Chart History") {
+                    AppDependencies.shared.clearChartHistory()
+                }
+                    .keyboardShortcut("k", modifiers: .command)
                 Button("Decrease Update Interval") {
                     AppDependencies.shared.decreaseMetricsInterval()
                 }

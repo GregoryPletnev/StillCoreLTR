@@ -15,6 +15,15 @@ final class MetricsCurrentValuesRenderer: LineChartRenderer {
     private var currentValuesHeight: CGFloat?
     private var lineHeights: [CGFloat] = []
 
+    override func drawFilledPath(context: CGContext, path: CGPath, fillColor: NSColor, fillAlpha: CGFloat) {
+        context.saveGState()
+        if fillColor.alphaComponent < 1 {
+            context.setBlendMode(.overlay)
+        }
+        super.drawFilledPath(context: context, path: path, fillColor: fillColor, fillAlpha: fillAlpha)
+        context.restoreGState()
+    }
+
     func resetCurrentValuesLayout() {
         currentValuesHeight = nil
         lineHeights = []
@@ -106,7 +115,7 @@ final class MetricsCurrentValuesRenderer: LineChartRenderer {
             + MetricsCurrentValuesLayout.columnSpacing
 
         for ((valueLine, labelLine), height) in zip(zip(valueLines, labelLines), lineHeights) {
-            valueLine.removingTrailingNewline.draw(
+            valueLine.draw(
                 with: CGRect(
                     x: valuesX,
                     y: y,
@@ -115,7 +124,7 @@ final class MetricsCurrentValuesRenderer: LineChartRenderer {
                 ),
                 options: [.usesLineFragmentOrigin, .usesFontLeading]
             )
-            labelLine.removingTrailingNewline.draw(
+            labelLine.draw(
                 with: CGRect(
                     x: labelsX,
                     y: y,
@@ -134,25 +143,13 @@ final class MetricsCurrentValuesRenderer: LineChartRenderer {
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
-        let firstLine = valueLines[0]
-        let firstSymbolHeight = firstLine
-            .attributedSubstring(from: NSRange(location: 0, length: 1))
-            .boundingRect(
-                with: unconstrainedSize,
-                options: [.usesLineFragmentOrigin, .usesFontLeading]
-            ).height
-
         return valueLines.map { line in
-            var lineHeight = line.boundingRect(
+            let lineHeight = line.boundingRect(
                 with: unconstrainedSize,
                 options: [.usesLineFragmentOrigin, .usesFontLeading]
             ).height
-
-            if line.string.hasSuffix("\n") {
-                lineHeight -= firstSymbolHeight
-            }
-
-            return lineHeight
+            let style = line.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+            return lineHeight + (style?.paragraphSpacing ?? 0)
         }
     }
 }
@@ -203,14 +200,14 @@ enum MetricsDetailsBuilder {
             case .line:
                 descriptor.color
             case .fill:
-                descriptor.color.withAlphaComponent(0.6)
+                descriptor.color.withAlphaComponent(max(descriptor.color.alphaComponent, 0.6))
             }
 
             currentItems.append(
                 .init(
                     descriptorIndex: point.descriptorIndex,
                     text: descriptor.detailsFormatter(point.detailsValue),
-                    color: itemColor,
+                    color: descriptor.textColor ?? itemColor,
                     label: currentItems.isEmpty ? descriptor.title : nil
                 )
             )
@@ -252,7 +249,7 @@ enum MetricsDetailsTextBuilder {
                     ? item.color.withAlphaComponent(hiddenTextAlpha)
                     : item.color
                 return NSAttributedString(
-                    string: (item.label ?? "") + "\n",
+                    string: item.label ?? "",
                     attributes: [
                         .font: AppFonts.chartLegend,
                         .foregroundColor: color,
@@ -266,7 +263,8 @@ enum MetricsDetailsTextBuilder {
     static func buildValueLines(
         from rows: [MetricsDetailsBuilder.Row],
         hiddenDescriptors: Set<Int> = [],
-        fontSize: CGFloat = 12
+        fontSize: CGFloat = 12,
+        trailingNewline: Bool = false
     ) -> [NSAttributedString] {
         let font = valueFont(for: fontSize)
         let percentFont = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .heavy)
@@ -282,7 +280,7 @@ enum MetricsDetailsTextBuilder {
                     ? item.color.withAlphaComponent(hiddenTextAlpha)
                     : item.color
                 let line = NSMutableAttributedString(
-                    string: "\(item.text)\n",
+                    string: trailingNewline ? item.text + "\n" : item.text,
                     attributes: [
                         .font: font,
                         .foregroundColor: color,
@@ -428,7 +426,7 @@ final class MetricsDetailsMarkerView: FormattedTextMarkerView {
             text.append(buildTimeText(from: sampleDate))
         }
 
-        for line in MetricsDetailsTextBuilder.buildValueLines(from: rows, fontSize: 10) {
+        for line in MetricsDetailsTextBuilder.buildValueLines(from: rows, fontSize: 10, trailingNewline: true) {
             text.append(line)
         }
         attributedText = text.removingTrailingNewline

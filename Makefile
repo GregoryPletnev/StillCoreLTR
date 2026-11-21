@@ -4,9 +4,11 @@ NAME := StillCore
 PRODUCT := StillCoreLTR
 LOCAL ?=
 WORKSPACE ?=
-CONFIGURATION ?= Debug
+CONFIGURATION ?= $(if $(filter Release,$(MAKECMDGOALS)),Release,Debug)
 DESTINATION ?= platform=macOS,arch=arm64
 DERIVED_DATA := .build
+SCAR := scripts/external/bin/scar
+SCAR_REVISION := 5b77611275909a2a05a6b57511d843485f4311e7
 XCODEBUILD_FLAGS := \
 	-quiet -hideShellScriptEnvironment \
 	ENABLE_CODE_COVERAGE=NO
@@ -33,20 +35,25 @@ APP_EXEC_PATH = $(APP_PATH)/Contents/MacOS/$(PRODUCT)
 help:
 	@printf '%s\n' \
 		'make app            Build $(PRODUCT).app' \
-		'LOCAL=1 make app    Build with local workspace and local macmon xcframework' \
-		'make run            Build and run $(NAME) in this terminal' \
+		'Add Release to a command for CONFIGURATION=Release (e.g. make run Release)' \
+		'make app LOCAL=1    Build with local workspace and local macmon xcframework' \
+		'make run [ARGS=...] Build and run $(NAME) in this terminal' \
 		'make open-app       Build and open $(PRODUCT).app' \
+		'make helpers-uninstall Build app and uninstall both helpers' \
 		'make release        Build Release, create $(DMG_PATH), submit for notarization' \
 		'  DEVELOPMENT_TEAM=... Team id for Developer ID signing' \
 		'  NOTARY_PROFILE=... Keychain profile for notarytool (default: $(NOTARY_PROFILE))' \
 		'make dmg            Build Release, create $(DMG_PATH) suitable for local running (ad-hoc)' \
-		'make helper-restart Build app and restart battery helper' \
-		'make helper-uninstall Build app and uninstall battery helper' \
 		'make profile        Build $(NAME) and launch xctrace Time Profiler' \
 		'make benchmarks     Run charts benchmarks' \
+		'make test           Build app and run automated checks without root' \
 		'make install-hooks  Use repo-managed git hooks' \
+		'make assets         Compile and compact CAR and ICNS resources' \
 		'make clean          Remove .build'
 
+
+.PHONY: Release
+Release: ;
 
 .PHONY: app
 app:
@@ -58,19 +65,15 @@ app:
 
 .PHONY: run
 run: app
-	$(APP_EXEC_PATH)
+	"$(APP_EXEC_PATH)" $(ARGS)
 
 .PHONY: open-app
 open-app: app
 	open "$(APP_PATH)"
 
-.PHONY: helper-restart
-helper-restart: app
-	"$(APP_EXEC_PATH)" --helper-restart
-
-.PHONY: helper-uninstall
-helper-uninstall: app
-	"$(APP_EXEC_PATH)" --helper-uninstall
+.PHONY: helpers-uninstall
+helpers-uninstall: app
+	"$(APP_EXEC_PATH)" --helpers-uninstall
 
 .PHONY: benchmarks
 benchmarks:
@@ -81,6 +84,46 @@ benchmarks:
 .PHONY: install-hooks
 install-hooks:
 	git config core.hooksPath .githooks
+
+$(SCAR):
+	cargo install --git https://github.com/theacrat/scar.git \
+		--rev $(SCAR_REVISION) --locked --root scripts/external scar
+
+.PHONY: assets
+assets: $(SCAR)
+	bash scripts/build-assets.sh
+
+.PHONY: test
+test: app
+	xcrun swiftc -swift-version 6 -parse-as-library \
+		-module-cache-path $(DERIVED_DATA)/ModuleCache.noindex \
+		PowerMetricsShared/PowerMetricsProtocol.swift \
+		StillCore/HelperService.swift \
+		StillCore/PowerMetricsService.swift \
+		BatteryTrackingShared/BatterySession.swift \
+		Tests/PowerMetricsChecks.swift \
+		-o $(DERIVED_DATA)/PowerMetricsChecks
+	$(DERIVED_DATA)/PowerMetricsChecks "$(APP_PATH)"
+	/bin/zsh -c 'exec -a Contents/MacOS/PowerMetricsHelper "$$1" "$$2"' \
+		-- "$(DERIVED_DATA)/PowerMetricsChecks" "$(APP_PATH)"
+	xcrun swiftc -swift-version 6 -parse-as-library \
+		-module-cache-path $(DERIVED_DATA)/ModuleCache.noindex \
+		BatteryTrackingShared/BatterySession.swift BatteryTrackingShared/BatteryStatus.swift \
+		BatteryTrackerHelper/BatteryTrackerEngine.swift \
+		StillCore/BatteryDischargeScale.swift \
+		StillCore/HelperService.swift StillCore/BatteryTrackerService.swift \
+		Tests/BatterySessionChecks.swift -o $(DERIVED_DATA)/BatterySessionChecks
+	$(DERIVED_DATA)/BatterySessionChecks
+	xcrun swiftc -swift-version 6 -parse-as-library \
+		-module-cache-path $(DERIVED_DATA)/ModuleCache.noindex \
+		StillCore/ProcessSampler.swift Tests/ProcessQoSChecks.swift \
+		-o $(DERIVED_DATA)/ProcessQoSChecks
+	$(DERIVED_DATA)/ProcessQoSChecks
+	xcrun swiftc -swift-version 6 -parse-as-library \
+		-module-cache-path $(DERIVED_DATA)/ModuleCache.noindex \
+		StillCore/ProcessSampler.swift Tests/ProcessFilterChecks.swift \
+		-o $(DERIVED_DATA)/ProcessFilterChecks
+	$(DERIVED_DATA)/ProcessFilterChecks
 
 .PHONY: profile
 PROFILE_TRACE ?= $(DERIVED_DATA)/$(NAME)-Time-Profiler.trace
@@ -147,10 +190,8 @@ dmg: EXPORT_DIR=$(DMG_EXPORT_DIR)
 dmg: _prepare-dmg-staging-dir export-app
 	cp -R "$(DMG_EXPORT_DIR)/$(PRODUCT).app" "$(DMG_STAGING_DIR)/"
 	rm -f "$(DMG_PATH)"
-	hdiutil create -volname "$(PRODUCT)" \
-		-srcfolder "$(DMG_STAGING_DIR)" \
-		-ov -format UDZO \
-		"$(DMG_PATH)"
+	diskutil image create from --volumeName "$(PRODUCT)" --format UDZO \
+		"$(DMG_STAGING_DIR)" "$(DMG_PATH)"
 
 # -------------------------------- release ---------------------------------------------
 .PHONY: _require-development-team

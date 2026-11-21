@@ -8,7 +8,7 @@ import Foundation
 final class MetricsHistoryService: @unchecked Sendable {
     static let shared = MetricsHistoryService()
 
-    private let queue = DispatchQueue(label: "com.github.homm.StillCore.history", qos: .utility)
+    private let queue = DispatchQueue(label: "com.ftech.StillCoreLTR.history", qos: .utility)
     /// Queue-confined. Opened on first use so a broken database never blocks
     /// app launch.
     private var store: MetricsHistoryStore?

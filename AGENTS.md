@@ -1,15 +1,19 @@
 # Project Instructions
 
+## Code Style
+
+- Do not use `guard` in new code. Use `if` instead.
+
 ## Build Commands
 
 Useful `make help` commands for development:
 
 - `make app` — build `StillCoreLTR.app`
-- `LOCAL=1 make app` — build with local workspace and local `macmon` xcframework
+- `make app LOCAL=1` — build with local workspace and local `macmon` xcframework
 - `make run` — build and run `StillCore` in the current terminal
 - `make open-app` — build and open `StillCoreLTR.app`
-- `make helper-restart` — build the app and restart the battery helper
-- `make helper-uninstall` — build the app and uninstall the battery helper
+- `make helpers-uninstall` — build the app and uninstall both helpers
+- `make test` — build the app and run automated checks without root
 - `make profile` — build `StillCore` and launch Time Profiler
 - `make benchmarks` — run charts benchmarks
 - `make clean` — remove `.build`

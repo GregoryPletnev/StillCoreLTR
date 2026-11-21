@@ -15,9 +15,11 @@ struct BatteryTrackerEngine {
         self.helperVersion = helperVersion
     }
 
-    func run() -> Never {
-        let historyRecorder = HelperHistoryRecorder()
-
+    /// Runs the polling loop forever. `recordHistory` is called once per cycle
+    /// with the battery status, or nil when the battery read failed. It is a
+    /// closure so the engine does not depend on MacmonSwift and stays
+    /// buildable on its own for `make test`.
+    func run(recordHistory: (BatteryStatus?, Date) -> Void = { _, _ in }) -> Never {
         while true {
             autoreleasepool {
                 let cycleStartedAt = Date()
@@ -27,11 +29,11 @@ struct BatteryTrackerEngine {
                     let batteryStatus = try BatteryStatus.read()
                     state = update(state: state, batteryStatus: batteryStatus, now: cycleStartedAt)
                     try store.save(state)
-                    historyRecorder.record(batteryStatus: batteryStatus, now: cycleStartedAt)
+                    recordHistory(batteryStatus, cycleStartedAt)
                 } catch {
                     // Metrics history does not depend on the battery, so keep
                     // recording it even when the battery read fails.
-                    historyRecorder.record(batteryStatus: nil, now: cycleStartedAt)
+                    recordHistory(nil, cycleStartedAt)
                     do {
                         try store.save(makeErrorState(message: error.localizedDescription, now: cycleStartedAt))
                     } catch {
@@ -46,8 +48,9 @@ struct BatteryTrackerEngine {
         }
     }
 
-    private func update(state: BatteryTrackerState, batteryStatus: BatteryStatus, now: Date) -> BatteryTrackerState {
+    func update(state: BatteryTrackerState, batteryStatus: BatteryStatus, now: Date) -> BatteryTrackerState {
         var nextState = state
+        nextState.schemaVersion = BatteryTrackerState.currentSchemaVersion
         var session = nextState.session
 
         if let previousCheck = session?.lastCheckAt {
@@ -60,10 +63,13 @@ struct BatteryTrackerEngine {
         if batteryStatus.isOnACPower {
             session = nil
         } else {
-            if session == nil {
+            // An older writer drops startChargeMah but can preserve schemaVersion.
+            if session?.startChargeMah == nil {
                 session = BatteryTrackerSession(
                     startedAt: now,
-                    startCapacityMah: batteryStatus.currentCapacityMah,
+                    startCapacityMah: batteryStatus.rawCurrentCapacity
+                        ?? batteryStatus.reportedCurrentCapacity ?? batteryStatus.currentCapacityMah,
+                    startChargeMah: batteryStatus.currentCapacityMah,
                     sleepSeconds: 0,
                     lastCheckAt: now
                 )

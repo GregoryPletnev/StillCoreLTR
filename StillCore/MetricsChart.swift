@@ -12,11 +12,13 @@ struct MetricsSeriesDescriptor {
 
     let title: String
     let color: NSColor
+    var textColor: NSColor?
     let kind: Kind
     var lineWidth = 1.0
-    let chartValue: (Metrics) -> Double
-    var detailsValue: ((Metrics) -> Double)?
-    let detailsFormatter: (Double) -> String
+    let chartValue: (Metrics) -> Float
+    var stacksWithVisibleSeries = false
+    var detailsValue: ((Metrics) -> Float)?
+    let detailsFormatter: (Float) -> String
     var detailsGroup: String?
     var showsDetails = true
 }
@@ -34,8 +36,8 @@ struct MetricsChartDefinition {
 
 private struct MaterializedMetricsSample {
     struct SeriesValue {
-        let chartValue: Double
-        let detailsValue: Double
+        let chartValue: Float
+        let detailsValue: Float
     }
 
     let sampleID: Int
@@ -45,7 +47,8 @@ private struct MaterializedMetricsSample {
 
 struct MaterializedChartPoint {
     let descriptorIndex: Int
-    let detailsValue: Double
+    let chartValue: Float
+    let detailsValue: Float
     let sampleDate: Date
 }
 
@@ -91,6 +94,7 @@ final class ChartDataController {
         )
 
         appendEntries(from: sample, series: series)
+        recalculateStackedEntries(fromIndex: dataSets.first.map { $0.count - 1 } ?? 0)
         trimToCapacity(capacity)
         updateSinglePointAppearance(series: series)
 
@@ -108,11 +112,11 @@ final class ChartDataController {
             dataSet.mode = .linear
             dataSet.drawValuesEnabled = false
             dataSet.drawCirclesEnabled = false
+            dataSet.highlightEnabled = true
+            dataSet.drawHorizontalHighlightIndicatorEnabled = false
 
             switch descriptor.kind {
             case .line:
-                dataSet.highlightEnabled = true
-                dataSet.drawHorizontalHighlightIndicatorEnabled = false
                 dataSet.drawCircleHoleEnabled = false
                 dataSet.drawFilledEnabled = false
                 dataSet.lineWidth = descriptor.lineWidth
@@ -120,7 +124,6 @@ final class ChartDataController {
                 dataSet.setColor(descriptor.color)
                 dataSet.setCircleColor(descriptor.color)
             case .fill:
-                dataSet.highlightEnabled = false
                 dataSet.lineWidth = 0
                 dataSet.drawFilledEnabled = true
                 dataSet.fillColor = descriptor.color
@@ -157,14 +160,42 @@ final class ChartDataController {
             dataSets[index].append(
                 ChartDataEntry(
                     x: Double(sample.sampleID),
-                    y: sample.values[index].chartValue,
+                    y: Double(sample.values[index].chartValue),
                     data: MaterializedChartPoint(
                         descriptorIndex: index,
+                        chartValue: sample.values[index].chartValue,
                         detailsValue: sample.values[index].detailsValue,
                         sampleDate: sample.sampleDate
                     )
                 )
             )
+        }
+    }
+
+    func setHiddenDescriptors(_ hiddenDescriptors: Set<Int>) {
+        for (index, dataSet) in dataSets.enumerated() {
+            dataSet.visible = !hiddenDescriptors.contains(index)
+        }
+        recalculateStackedEntries(fromIndex: 0)
+        dataSets.forEach { $0.notifyDataSetChanged() }
+        data?.notifyDataChanged()
+    }
+
+    private func recalculateStackedEntries(fromIndex: Int) {
+        let stackedDataSets = dataSets.enumerated().compactMap { index, dataSet in
+            series[index].stacksWithVisibleSeries && dataSet.isVisible ? dataSet : nil
+        }
+        if let count = stackedDataSets.first?.count {
+            for entryIndex in fromIndex..<count {
+                var total: Float = 0
+                for dataSet in stackedDataSets.reversed() {
+                    let entry = dataSet[entryIndex]
+                    if let point = entry.data as? MaterializedChartPoint {
+                        total += point.chartValue
+                        entry.y = Double(total)
+                    }
+                }
+            }
         }
     }
 
@@ -179,6 +210,13 @@ final class ChartDataController {
             // when the viewport shrinks past the previously highlighted point.
             dataSet.removeFirst(dataSet.count - capacity - 1)
         }
+    }
+
+    func clearHistory() {
+        dataSets.forEach { dataSet in
+            dataSet.removeFirst(max(0, dataSet.count - 1))
+        }
+        updateSinglePointAppearance(series: series)
     }
 
     func visibleYMax(fromX: Double, toX: Double, fallback: Double) -> Double {
@@ -214,11 +252,9 @@ final class MetricsChartStore: ObservableObject {
     ) {
         self.definition = definition
         self.capacity = capacity
-        self.metricsSubscription = metricsPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] metrics in
-                self?.append(metrics)
-            }
+        self.metricsSubscription = metricsPublisher.sink { [weak self] metrics in
+            self?.append(metrics)
+        }
     }
 
     func setShowUpdates(_ showUpdates: Bool) {
@@ -228,6 +264,11 @@ final class MetricsChartStore: ObservableObject {
         if showUpdates {
             chartRevision += 1
         }
+    }
+
+    func clearHistory() {
+        controller.clearHistory()
+        chartRevision += 1
     }
 
     private func append(_ metrics: Metrics) {
@@ -330,7 +371,6 @@ final class MetricsLineChartView: LineChartView {
     )
     var yMaxResetRevision = 0
     var series: [MetricsSeriesDescriptor] = []
-    var clearHighlight: (() -> Void)?
     var onCurrentValuesRowMouseDown: ((MetricsDetailsBuilder.Row, Bool) -> Void)?
     var hiddenDescriptors: Set<Int> = []
     nonisolated(unsafe) private var currentValuesMouseDownMonitor: Any?
@@ -386,22 +426,8 @@ final class MetricsLineChartView: LineChartView {
         (renderer as? MetricsCurrentValuesRenderer)?.resetCurrentValuesLayout()
     }
 
-    func applyCurrentValuesVisibility() {
-        guard let data else { return }
-
-        for case let dataSet as LineChartDataSet in data.dataSets {
-            guard let point = dataSet.first?.data as? MaterializedChartPoint,
-                  series.indices.contains(point.descriptorIndex)
-            else {
-                continue
-            }
-
-            dataSet.visible = !hiddenDescriptors.contains(point.descriptorIndex)
-        }
-    }
-
     override func rightMouseDown(with event: NSEvent) {
-        clearHighlight?()
+        highlightValue(nil, callDelegate: true)
     }
 
     override func getMarkerPosition(highlight: Highlight) -> CGPoint {
@@ -454,6 +480,32 @@ final class MetricsLineChartView: LineChartView {
     }
 }
 
+@MainActor
+final class ChartSelection: NSObject, @preconcurrency ChartViewDelegate {
+    private let charts = NSHashTable<MetricsLineChartView>.weakObjects()
+    private(set) var sampleX: Double?
+
+    func register(_ chart: MetricsLineChartView) {
+        charts.add(chart)
+        chart.delegate = self
+    }
+
+    func select(_ x: Double?) {
+        sampleX = x
+        for chart in charts.allObjects {
+            chart.applySharedHighlight(x)
+        }
+    }
+
+    func chartValueSelected(_ chartView: ChartViewBase, entry: ChartDataEntry, highlight: Highlight) {
+        select(entry.x)
+    }
+
+    func chartValueNothingSelected(_ chartView: ChartViewBase) {
+        select(nil)
+    }
+}
+
 private struct MetricsDGChartView: NSViewRepresentable {
     let controller: ChartDataController
     let revision: Int
@@ -463,34 +515,7 @@ private struct MetricsDGChartView: NSViewRepresentable {
     let yAxisLabelCount: Int
     let showsSampleTime: Bool
     let settingsInvalidationKey: AnyHashable
-    @Binding var highlightedSampleX: Double?
-
-    final class Coordinator: NSObject, ChartViewDelegate {
-        private let highlightedSampleX: Binding<Double?>
-
-        init(highlightedSampleX: Binding<Double?>) {
-            self.highlightedSampleX = highlightedSampleX
-        }
-
-        nonisolated
-        func chartValueSelected(
-            _ chartView: ChartViewBase,
-            entry: ChartDataEntry,
-            highlight: Highlight
-        ) {
-            let sampleX = entry.x
-            Task { @MainActor [highlightedSampleX] in highlightedSampleX.wrappedValue = sampleX }
-        }
-
-        nonisolated
-        func chartValueNothingSelected(_ chartView: ChartViewBase) {
-            Task { @MainActor [highlightedSampleX] in highlightedSampleX.wrappedValue = nil }
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(highlightedSampleX: $highlightedSampleX)
-    }
+    let selection: ChartSelection
 
     func makeNSView(context: Context) -> MetricsLineChartView {
         let chartView = MetricsLineChartView()
@@ -506,7 +531,6 @@ private struct MetricsDGChartView: NSViewRepresentable {
         chartView.extraTopOffset = 8
         chartView.extraBottomOffset = 4
         chartView.extraRightOffset = MetricsCurrentValuesLayout.rightOffset
-        chartView.clearHighlight = { highlightedSampleX = nil }
         chartView.onCurrentValuesRowMouseDown = { row, isShiftPressed in
             let rowDescriptors = Set(row.items.map(\.descriptorIndex))
             let allDescriptors = Set(
@@ -533,13 +557,13 @@ private struct MetricsDGChartView: NSViewRepresentable {
                 }
             }
 
-            chartView.applyCurrentValuesVisibility()
+            controller.setHiddenDescriptors(chartView.hiddenDescriptors)
             chartView.resetCurrentValuesLayout()
             chartView.yMaxStabilizer.reset()
             configureAxisRanges(chartView)
             chartView.notifyDataSetChanged()
         }
-        chartView.delegate = context.coordinator
+        selection.register(chartView)
 
         let xAxis = chartView.xAxis
         xAxis.enabled = true
@@ -581,7 +605,7 @@ private struct MetricsDGChartView: NSViewRepresentable {
 
         configureAxisRanges(chartView)
         chartView.notifyDataSetChanged()
-        chartView.applySharedHighlight(highlightedSampleX)
+        chartView.applySharedHighlight(selection.sampleX)
     }
 
     private func configureAxes(_ chartView: MetricsLineChartView) {
@@ -629,7 +653,8 @@ struct MetricsChartSection: View {
     let definition: MetricsChartDefinition
     let capacity: Int
     let showUpdates: Bool
-    @Binding var highlightedSampleX: Double?
+    let historyResetRevision: Int
+    let selection: ChartSelection
     let yAxisLabelCount: Int
     let yStart: Double
     let settingsInvalidationKey: AnyHashable
@@ -648,7 +673,8 @@ struct MetricsChartSection: View {
         metricsPublisher: AnyPublisher<Metrics, Never>,
         capacity: Int,
         showUpdates: Bool,
-        highlightedSampleX: Binding<Double?>,
+        historyResetRevision: Int,
+        selection: ChartSelection,
         yAxisLabelCount: Int = 5,
         yStart: Double = 0.0,
         settingsInvalidationKey: AnyHashable = AnyHashable(0),
@@ -657,7 +683,8 @@ struct MetricsChartSection: View {
         self.definition = definition
         self.capacity = capacity
         self.showUpdates = showUpdates
-        self._highlightedSampleX = highlightedSampleX
+        self.historyResetRevision = historyResetRevision
+        self.selection = selection
         self.yAxisLabelCount = yAxisLabelCount
         self.yStart = yStart
         self.settingsInvalidationKey = settingsInvalidationKey
@@ -683,7 +710,7 @@ struct MetricsChartSection: View {
                     yAxisLabelCount: yAxisLabelCount,
                     showsSampleTime: definition.showsSampleTime,
                     settingsInvalidationKey: settingsInvalidationKey,
-                    highlightedSampleX: $highlightedSampleX
+                    selection: selection
                 )
             } else {
                 VStack(alignment: .leading) {
@@ -709,6 +736,11 @@ struct MetricsChartSection: View {
             if newValue {
                 yMaxResetRevision += 1
             }
+        }
+        .onChange(of: historyResetRevision) { _, _ in
+            selection.select(nil)
+            store.clearHistory()
+            yMaxResetRevision += 1
         }
     }
 

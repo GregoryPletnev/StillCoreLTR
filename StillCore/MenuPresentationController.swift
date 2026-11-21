@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 enum PresentationMode: Equatable {
@@ -12,6 +13,9 @@ final class MenuPresentationState: ObservableObject {
     @Published private(set) var isWindowVisible: Bool = false
 
     fileprivate var onModeChange: (() -> Void)?
+    var isConfirmingProcessTermination = false
+    var onMinimumContentHeightChange: ((CGFloat) -> Void)?
+    var moveProcessSelection: ((Int) -> Bool)?
 
     func setPresentationMode(_ mode: PresentationMode) {
         guard self.mode != mode else { return }
@@ -86,7 +90,7 @@ private final class FloatingWindow: NSWindow {
     init() {
         super.init(
             contentRect: .zero,
-            styleMask: [.titled, .closable, .resizable],
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -94,6 +98,27 @@ private final class FloatingWindow: NSWindow {
         isReleasedWhenClosed = false
         collectionBehavior = [.moveToActiveSpace, .fullScreenNone]
         tabbingMode = .disallowed
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        toolbar = NSToolbar(identifier: "FloatingWindowToolbar")
+        toolbarStyle = .unifiedCompact
+        showsToolbarButton = false
+    }
+
+    override func layoutIfNeeded() {
+        super.layoutIfNeeded()
+
+        // Center the window controls on the floating header, 24 points from the top.
+        let centerInWindow = NSPoint(x: 0, y: frame.height - 24)
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            if let button = standardWindowButton(type), let container = button.superview {
+                let centerY = container.convert(centerInWindow, from: nil).y
+                let origin = NSPoint(x: button.frame.minX, y: centerY - button.frame.height / 2)
+                if button.frame.origin != origin {
+                    button.setFrameOrigin(origin)
+                }
+            }
+        }
     }
 }
 
@@ -108,13 +133,14 @@ final class MenuPresentationController<Content: View>: NSObject, NSWindowDelegat
     private var currentWindow: NSWindow
     private let attachedWindow: AttachedWindow
     private let floatingWindow: FloatingWindow
+    private var keyDownMonitor: Any?
 
     private var presentationMode: PresentationMode { presentationState.mode }
 
     init(
         @ViewBuilder content: @escaping ContentBuilder,
         statusItemMenu: NSMenu? = nil,
-        configureWindow: ((NSWindow, PresentationMode) -> Void)? = nil
+        configureWindow: ((NSWindow) -> Void)? = nil
     ) {
         hostingView = NSHostingView(rootView: AnyView(content(presentationState)))
         hostingView.sizingOptions = []
@@ -131,8 +157,26 @@ final class MenuPresentationController<Content: View>: NSObject, NSWindowDelegat
 
         attachedWindow.delegate = self
         floatingWindow.delegate = self
-        configureWindow?(attachedWindow, .attached)
-        configureWindow?(floatingWindow, .floating)
+        configureWindow?(attachedWindow)
+        configureWindow?(floatingWindow)
+        floatingWindow.center()
+        floatingWindow.setFrameAutosaveName("StillCoreFloatingWindow")
+        presentationState.onMinimumContentHeightChange = { [weak self] height in
+            if let self {
+                for window in [self.attachedWindow as NSWindow, self.floatingWindow] {
+                    let minimumSize = NSSize(width: window.contentMinSize.width, height: ceil(height))
+                    let previousMinimum = window.frameRect(forContentRect: NSRect(origin: .zero, size: window.contentMinSize)).height
+                    let minimum = window.frameRect(forContentRect: NSRect(origin: .zero, size: minimumSize)).height
+                    var frame = window.frame
+                    window.contentMinSize = minimumSize
+                    if frame.height < minimum || frame.height == previousMinimum {
+                        frame.origin.y += frame.height - minimum
+                        frame.size.height = minimum
+                        window.setFrame(frame, display: window.isVisible)
+                    }
+                }
+            }
+        }
         configureStatusItemAction()
 
         presentationState.onModeChange = { [weak self] in
@@ -170,6 +214,18 @@ final class MenuPresentationController<Content: View>: NSObject, NSWindowDelegat
         }
     }
 
+    func showFloatingWindow() {
+        let saved = floatingWindow.frame
+        presentationState.setPresentationMode(.floating)
+        var frame = floatingWindow.frameRect(forContentRect: NSRect(origin: .zero, size: floatingWindow.contentMinSize))
+        frame.origin = NSPoint(x: saved.minX, y: saved.maxY - frame.height)
+        if let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(frame) }) ?? NSScreen.main {
+            frame = floatingWindow.constrainFrameRect(frame, to: screen)
+        }
+        floatingWindow.setFrame(frame, display: false)
+        showWindow()
+    }
+
     private func showWindow() {
         if presentationMode == .attached {
             attachedWindow.repositionWindow(relativeTo: statusItem.button)
@@ -181,9 +237,30 @@ final class MenuPresentationController<Content: View>: NSObject, NSWindowDelegat
         currentWindow.makeKeyAndOrderFront(nil)
         currentWindow.makeFirstResponder(nil)
         syncActivationPolicy()
+        if keyDownMonitor == nil {
+            keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                if let self, event.window === currentWindow, currentWindow.isKeyWindow,
+                   !(currentWindow.firstResponder is NSTextView),
+                   event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
+                    switch Int(event.keyCode) {
+                    case kVK_UpArrow:
+                        if presentationState.moveProcessSelection?(-1) == true { return nil }
+                    case kVK_DownArrow:
+                        if presentationState.moveProcessSelection?(1) == true { return nil }
+                    default:
+                        break
+                    }
+                }
+                return event
+            }
+        }
     }
 
     private func hideWindow() {
+        if let keyDownMonitor {
+            NSEvent.removeMonitor(keyDownMonitor)
+            self.keyDownMonitor = nil
+        }
         currentWindow.orderOut(nil)
         presentationState.setWindowVisible(false)
         syncActivationPolicy()
@@ -237,8 +314,14 @@ final class MenuPresentationController<Content: View>: NSObject, NSWindowDelegat
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        if presentationMode == .attached {
+        if presentationMode == .attached && !presentationState.isConfirmingProcessTermination {
             hideWindow()
+        }
+    }
+
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window === currentWindow {
+            presentationState.setWindowVisible(window.isVisible && !window.isMiniaturized && !NSApp.isHidden)
         }
     }
 

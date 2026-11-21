@@ -20,18 +20,29 @@ enum BatteryTrackerConstants {
 
 struct BatteryTrackerSession: Codable {
     var startedAt: Date
+    // Retain the original scale for older apps and helpers sharing the file.
     var startCapacityMah: Int
+    var startChargeMah: Int?
     var sleepSeconds: Int
     var lastCheckAt: Date
 }
 
 struct BatteryTrackerState: Codable {
-    var schemaVersion: Int = 2
+    static let currentSchemaVersion = 3
+    var schemaVersion: Int = Self.currentSchemaVersion
     var helperVersion: String = ""
     var pid: Int32 = 0
     var heartbeatAt: Date = .distantPast
     var session: BatteryTrackerSession?
     var lastError: String?
+
+    func isRunning(after heartbeat: Date? = nil) -> Bool {
+        if lastError != nil || Date().timeIntervalSince(heartbeatAt) > BatteryTrackerConstants.heartbeatTimeout {
+            return false
+        }
+        if let heartbeat { return heartbeatAt > heartbeat }
+        return true
+    }
 }
 
 struct BatterySessionStore {
